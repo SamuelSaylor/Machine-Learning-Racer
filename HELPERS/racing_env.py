@@ -373,6 +373,7 @@ class RacingEnv(gym.Env):
                 f"laps={p.get('lap_count', 0)} | "
                 f"r_fwd={p.get('r_forward', 0.0):.2f} r_on_track={p.get('r_on_track', 0.0):.2f} "
                 f"r_cp={p.get('r_checkpoint', 0.0):.2f} r_lap={p.get('r_lap', 0.0):.2f} "
+                f"r_thr_bonus={p.get('r_throttle_bonus', 0.0):.2f} "
                 f"p_rev={p.get('p_backward', 0.0):.2f} p_off={p.get('p_off_track', 0.0):.2f} "
                 f"p_bnd={p.get('p_boundary', 0.0):.2f} | "
                 f"throttle_cmd={throttle_pct:.0f}% moving_forward={moving_fwd_pct:.0f}% "
@@ -397,6 +398,7 @@ class RacingEnv(gym.Env):
             "r_on_track": 0.0,
             "r_checkpoint": 0.0,
             "r_lap": 0.0,
+            "r_throttle_bonus": 0.0,
             "p_backward": 0.0,
             "p_off_track": 0.0,
             "p_boundary": 0.0,
@@ -462,6 +464,7 @@ class RacingEnv(gym.Env):
         r_on_track = 0.0
         r_checkpoint = 0.0
         r_lap = 0.0
+        r_throttle_bonus = 0.0
         p_backward = 0.0
         p_off_track = 0.0
         p_boundary = 0.0
@@ -488,8 +491,8 @@ class RacingEnv(gym.Env):
         forward_n = max(0.0, speed) / ms
 
         wants_forward = accel_idx == 2
-        # Meaningful forward motion (not noise / crawl)
-        moving_forward = speed > max(0.5, 0.04 * ms)
+        # Log "moving forward" when speed is clearly positive (fraction of max); loose enough for slow crawl
+        moving_forward = speed > max(0.15, 0.015 * ms)
         # Only flag mapping issues when still clearly reversing while throttling (not 1–2 frames recovering from reverse)
         _mismatch_thr = max(3.0, 0.12 * ms)
         mapping_mismatch = wants_forward and speed < -_mismatch_thr
@@ -503,11 +506,15 @@ class RacingEnv(gym.Env):
             r_on_track = 0.007
             reward += r_forward + r_on_track
             self._steps_on_good += 1
-            # Punish backward travel on the racing line
+            # Punish backward travel on the racing line (strong — reverse is costly vs checkpoints)
             if speed < 0.0:
                 rev_n = min(1.0, (-speed) / ms)
-                p_backward = 0.14 * rev_n
+                p_backward = 0.22 * rev_n
                 reward -= p_backward
+            # Small bonus for choosing throttle on the racing line (reduces coast/reverse-only policies)
+            if accel_idx == 2:
+                r_throttle_bonus = 0.01
+                reward += r_throttle_bonus
 
             # Checkpoints (same order as main.py: next mask must be hit)
             if self._cp_masks and self._cp_idx < len(self._cp_masks):
@@ -536,6 +543,7 @@ class RacingEnv(gym.Env):
         self._ep_log["r_on_track"] += r_on_track
         self._ep_log["r_checkpoint"] += r_checkpoint
         self._ep_log["r_lap"] += r_lap
+        self._ep_log["r_throttle_bonus"] += r_throttle_bonus
         self._ep_log["p_backward"] += p_backward
         self._ep_log["p_off_track"] += p_off_track
         self._ep_log["p_boundary"] += p_boundary
@@ -557,6 +565,7 @@ class RacingEnv(gym.Env):
             "r_on_track": float(r_on_track),
             "r_checkpoint": float(r_checkpoint),
             "r_lap": float(r_lap),
+            "r_throttle_bonus": float(r_throttle_bonus),
             "p_backward": float(p_backward),
             "p_off_track": float(p_off_track),
             "p_boundary": float(p_boundary),
