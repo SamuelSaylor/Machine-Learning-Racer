@@ -4,7 +4,7 @@ class RaceCar:
     def __init__(self, x,y, angle):
         self.car_pos = [x,y]
         self.health = 100
-        self.angle = angle
+        self.angle = angle 
         self.speed = 0.0
 
         self.max_speed = 150
