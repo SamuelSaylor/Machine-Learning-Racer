@@ -284,6 +284,35 @@ def main() -> None:
             env_kwargs=env_kwargs,
         )
 
+    n_steps = int(args.n_steps)
+    batch_size = int(args.batch_size)
+    if batch_size > n_steps * n_envs:
+        vec_env.close()
+        raise ValueError(
+            f"--batch-size ({batch_size}) must be <= n_steps * n_envs ({n_steps * n_envs})."
+        )
+
+    roll = n_steps * n_envs
+    approx_updates = args.timesteps / float(roll) if roll else 0.0
+    print(
+        f"Training: {n_envs} parallel envs  |  each PPO rollout = n_steps×n_envs = {roll} env steps  "
+        f"(~{approx_updates:.1f} gradient updates for --timesteps {args.timesteps}).",
+        file=sys.stderr,
+    )
+    if args.timesteps < roll * 5:
+        print(
+            f"WARNING: {args.timesteps} timesteps is only ~{approx_updates:.1f} updates; "
+            f"try --timesteps {max(args.timesteps, roll * 20)} or more for stable learning.",
+            file=sys.stderr,
+        )
+    if args.render:
+        cells = rg * rg
+        print(
+            f"Render window: {min(n_envs, cells)} pane(s) of {n_envs} training envs "
+            f"(grid {rg}×{rg}). All {n_envs} envs learn in parallel; you only see a subset.",
+            file=sys.stderr,
+        )
+
     device = _resolve_device(args.device)
     if device == "cuda":
         print(f"Using GPU: {torch.cuda.get_device_name(0)}")
@@ -294,13 +323,6 @@ def main() -> None:
         "not wall-clock. Use --n-steps / --physics-substeps if you want heavier updates or physics.",
         file=sys.stderr,
     )
-
-    n_steps = int(args.n_steps)
-    batch_size = int(args.batch_size)
-    if batch_size > n_steps * n_envs:
-        raise ValueError(
-            f"--batch-size ({batch_size}) must be <= n_steps * n_envs ({n_steps * n_envs})."
-        )
 
     model = PPO(
         "MlpPolicy",

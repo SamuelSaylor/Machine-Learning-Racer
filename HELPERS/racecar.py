@@ -35,11 +35,18 @@ class RaceCar:
         else:
             self.max_speed = base
             
-        # update speed 
+        # update speed
+        # Braking must pull speed toward 0 in both directions. braking is negative in CSV; the old
+        # `speed += braking*dt` made reverse speed *more* negative when pressing brake — looked like
+        # "the car only wants to go backward" under RL that sampled brake often.
         if input_accel > 0:
             self.speed += self.acceleration * input_accel * dt
         elif input_accel < 0:
-            self.speed += self.braking * (-input_accel) * dt
+            decel = abs(self.braking) * (-input_accel) * dt
+            if self.speed > 0:
+                self.speed = max(0.0, self.speed - decel)
+            elif self.speed < 0:
+                self.speed = min(0.0, self.speed + decel)
         else:
             if self.speed > 0:
                 self.speed -= self.friction * dt
