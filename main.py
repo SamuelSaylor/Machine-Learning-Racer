@@ -35,6 +35,9 @@ npc_car_img = pygame.transform.scale(npc_car_img, (10, 20))
 player_car_img = pygame.image.load(os.path.join(BASE_DIR, 'ASSETS', 'CARS', 'RedRacer.png')).convert_alpha()
 player_car_img = pygame.transform.scale(player_car_img, (10, 20))
 
+fin = pygame.image.load(os.path.join(BASE_DIR, 'ASSETS', 'FINISHEDMESSAGE.png')).convert_alpha()
+fin = pygame.transform.scale(fin, (1000, 1000))
+
 # Track / Deadzone / Background
 track_path = os.path.join(BASE_DIR, 'ASSETS', 'TRACKS', track_info['dirname'].iloc[0])
 track_img = pygame.image.load(os.path.join(track_path, "BOUNDARY.png")).convert_alpha()
@@ -68,6 +71,7 @@ checkpoints = [
     pygame.image.load(os.path.join(checkpoint_path, "CHECKPOINTTHREE.png")).convert_alpha(),
     pygame.image.load(os.path.join(checkpoint_path, "CHECKPOINTFOUR.png")).convert_alpha(),
     pygame.image.load(os.path.join(checkpoint_path, "CHECKPOINTFIVE.png")).convert_alpha(),
+    pygame.image.load(os.path.join(checkpoint_path, "CHECKPOINTSIXSEVEN.png")).convert_alpha(),
 ]
 
 for i in range(len(checkpoints)-1):
@@ -140,7 +144,8 @@ while running:
     else:
         npc_car.update(input_accel, input_dir, dt, 0)  # on track
         #print("NPC on track!")
-
+    if j == len(checkpoints)-1:
+        screen.blit(fin,(0,0))
     # --- Player car update ---
     if player:
         rotated_player = pygame.transform.rotate(player_car_img, player.angle)
