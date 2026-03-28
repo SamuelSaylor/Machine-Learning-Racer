@@ -16,7 +16,7 @@ track_info = df.loc[df['trackname'] == 'Budapest']
 # --- Set up Screen --- #
 WIDTH, HEIGHT = 1000, 1000
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption(track_info['trackname'])
+pygame.display.set_caption(track_info['trackname'].iloc[0])
 clock = pygame.time.Clock()
 
 # --- Load Images --- #
@@ -25,7 +25,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 #uncomment the other images to see the boundaries : )
 
 image_path = os.path.join(BASE_DIR, 'ASSETS', 'CARS', 'BlueRacer.png')
-background_path = os.path.join(BASE_DIR, 'ASSETS', 'TRACKS', track_info['dirname'], 'COSMETIC.png')
+background_path = os.path.join(BASE_DIR, 'ASSETS', 'TRACKS', track_info['dirname'].iloc[0], 'COSMETIC.png')
 #track_path = os.path.join(BASE_DIR, 'ASSETS', 'TRACKS', 'BUDAPEST')
 #deadzone_path = os.path.join(BASE_DIR, 'ASSETS', 'TRACKS', 'BUDAPEST')
 car_img = pygame.image.load(image_path).convert_alpha()
@@ -38,7 +38,7 @@ background_img = pygame.image.load(background_path).convert()
 background_img = pygame.transform.scale(background_img,(1000,1000))
 
 #who are we?
-car = RaceCar()
+car = RaceCar(track_info['startingcoordx'].iloc[0], track_info['startingcordy'].iloc[0], track_info['angle'].iloc[0])
 
 running = True
 
@@ -65,7 +65,7 @@ while running:
     elif keys[pygame.K_RIGHT]:
         input_dir = 1
 
-    car.update(input_accel, input_dir, dt)
+    car.update(input_accel, input_dir, dt,150)
 
     screen.fill((30, 30, 30))
 
