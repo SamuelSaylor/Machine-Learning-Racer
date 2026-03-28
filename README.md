@@ -1,40 +1,151 @@
-**Meet the Team:** Matthew Beck, Samuel Saylor, Samantha Machado, Prince Patel  
-Used for the UTSA Code Quantum Hackathon!  
+# 🏁 Machine Learning Racer
+
+## Meet the Team
+Matthew Beck, Samuel Saylor, Samantha Machado, Prince Patel  
+Built for the UTSA Code Quantum Hackathon 🚀  
 
 ---
 
-> "Race, Learn, Repeat: Watch AI master the track while you challenge it yourself!"
+> **"Race, Learn, Repeat: Watch AI master the track while you challenge it yourself!"**
 
 ---
 
-## Project Overview
+## 🧠 Project Overview
 
-This project is a **reinforcement learning-driven racing simulator** where an AI agent learns to drive a car around a track as efficiently as possible. The AI is trained using positive and negative reinforcement: completing the track quickly is rewarded, while going off-course or hitting boundaries slows it down.  
+This project is a **reinforcement learning-powered racing simulator** where an AI agent learns how to navigate a track as efficiently as possible.
 
-Additionally, an **optional single-player mode** allows humans to race against the AI, providing an interactive way to observe and compete with the model.  
+Using trial-and-error learning, the agent improves over time by:
+- Maximizing speed and forward progress  
+- Learning optimal racing lines  
+- Avoiding penalties like collisions or leaving the track  
 
-The goal is both **educational** and **competitive**, demonstrating how machine learning can be applied in a dynamic, visual environment.
+An **optional single-player mode** allows users to race against the trained AI in real time.
 
----
-
-## Features
-
-- **AI-Controlled Car:** Learns optimal racing paths using reinforcement learning.  
-- **Single-Player Mode:** Race against the AI agent.  
-- **Reinforcement Learning:** 
-  - **Positive reinforcement:** Completing the track quickly.
-  - **Negative reinforcement:** Leaving the track or hitting boundaries.  
-- **Track Visualization:** Real-time display of the car and track with boundary/deadzone highlights.
+This project demonstrates how machine learning can be applied to dynamic, physics-based environments by combining game development with AI training.
 
 ---
 
-## Tech Stack
+## ⚙️ Features
 
-- **Python 3.12+**  
-- **Pygame** – For graphics and input handling  
-- **Stable-Baselines3** – Reinforcement learning algorithms  
-- **Gymnasium** – Environment interface for training RL agents  
-- **NumPy** – Numerical computations  
-- **Matplotlib** – Optional visualizations for training metrics  
+### 🏎️ AI-Controlled Car
+- Trained using Proximal Policy Optimization (PPO)
+- Learns driving behavior from scratch (no hardcoded pathing)
+
+### 🎮 Single-Player Mode
+- Human vs AI racing  
+- Real-time keyboard controls  
+- Same physics system for both player and AI  
+
+### 🧩 Reinforcement Learning System
+
+**Positive Reinforcement:**
+- Moving forward efficiently  
+- Staying on track  
+- Passing checkpoints  
+- Completing laps quickly  
+
+**Negative Reinforcement:**
+- Driving off track  
+- Entering deadzones (forced respawn)  
+- Reversing unnecessarily  
+- Excessive steering or spinning  
+
+---
+
+## 🗺️ Track & Physics System
+
+- Pixel-based collision using masks  
+- Separate layers:
+  - Track boundary  
+  - Deadzone (crash areas)  
+  - Cosmetic background  
+- Realistic car physics:
+  - Acceleration  
+  - Friction  
+  - Turning dynamics  
+
+---
+
+## 🧪 Technical Breakdown
+
+### 📁 `racing_env.py` (Core RL Environment)
+
+Defines the Gymnasium-compatible environment used for training.
+
+**Responsibilities:**
+- Observation space (16 features):
+  - Speed  
+  - Steering input  
+  - Raycast distances (track awareness)  
+  - Track state (on/off/deadzone)  
+  - Checkpoint progress  
+
+- Raycasting system:
+  - 9 directional sensors simulate vision  
+  - Helps the AI understand track geometry  
+
+- Handles:
+  - Reward shaping  
+  - Collision detection  
+  - Checkpoint progression  
+  - Respawning logic  
+
+👉 This is where the AI learns how to drive.
+
+---
+
+### 🤖 `machinelearning.py` (Training Pipeline)
+
+Handles training using PPO.
+
+**Key Features:**
+- Parallel environments for faster learning  
+- Domain randomization:
+  - Slight variation in car stats each run  
+  - Prevents overfitting  
+
+- Configurable parameters:
+  - `--n-envs` (parallel environments)  
+  - `--timesteps` (training duration)  
+  - `--physics-substeps` (simulation accuracy)  
+
+---
+
+## ⚡ Training Settings
+
+- Learning Rate: `0.0003`  
+- Gamma: `0.99`  
+- PPO-based training with Stable-Baselines3  
+
+---
+
+## ⚠️ Training Challenges
+
+### Problem: Car not staying on track
+
+Early in training, the agent often:
+- Spins in circles  
+- Moves backward  
+- Gets stuck exploiting small reward signals  
+
+### Solutions:
+- Added forward velocity reward  
+- Penalized:
+  - Excessive steering  
+  - Spinning (yaw penalty)  
+  - Reverse movement  
+- Introduced checkpoint-based rewards  
+- Used domain randomization for robustness  
+
+---
+
+## 📊 Tech Stack
+
+- Python 3.12+  
+- Pygame (graphics & input)  
+- Stable-Baselines3 (reinforcement learning)  
+- Gymnasium (environment interface)  
+- NumPy (numerical operations)  
+- Matplotlib (training visualization)  
 
 ---
