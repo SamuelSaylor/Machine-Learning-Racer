@@ -1,11 +1,11 @@
 """
 Train PPO on RacingEnv: parallel envs, random car rows from car_data.csv + domain randomization.
 
-Run from project root:
-  python -m HELPERS.machinelearning --n-envs 8 --timesteps 200000
-  python -m HELPERS.machinelearning --tensorboard ./tb_logs --timesteps 500000
-  python -m HELPERS.machinelearning --render --track Budapest --timesteps 50000
-  python -m HELPERS.machinelearning --render --render-grid 2 --n-envs 4 --track Budapest --timesteps 50000
+Run from project root (default is 2M steps; quick tests: --timesteps 100000):
+  python -m HELPERS.machinelearning --tensorboard ./tb_logs
+  python -m HELPERS.machinelearning --timesteps 5000000 --tensorboard ./tb_logs
+  python -m HELPERS.machinelearning --render --track Budapest --timesteps 2000000
+  python -m HELPERS.machinelearning --render --render-grid 2 --n-envs 4 --track Budapest --timesteps 2000000
 
 TensorBoard: tensorboard --logdir ./tb_logs  (actor/critic losses, entropy, episode reward)
 
@@ -150,7 +150,15 @@ def _parse_args() -> argparse.Namespace:
         default=8,
         help="Parallel actors (vectorized envs). 200 is very CPU-heavy; start small.",
     )
-    p.add_argument("--timesteps", type=int, default=500_000, help="Total environment steps")
+    p.add_argument(
+        "--timesteps",
+        type=int,
+        default=2_000_000,
+        metavar="N",
+        help="Total env steps (SB3 counter; parallel envs make this accumulate fast in wall-clock). "
+        "Default 2e6. Quick smoke tests: 1e5. Serious runs often 5e6–2e7. "
+        "Very small values (e.g. 5e4) finish in seconds and give almost no learning.",
+    )
     p.add_argument(
         "--save-path",
         type=str,
@@ -295,14 +303,16 @@ def main() -> None:
     roll = n_steps * n_envs
     approx_updates = args.timesteps / float(roll) if roll else 0.0
     print(
-        f"Training: {n_envs} parallel envs  |  each PPO rollout = n_steps×n_envs = {roll} env steps  "
-        f"(~{approx_updates:.1f} gradient updates for --timesteps {args.timesteps}).",
+        f"Training: {n_envs} parallel envs  |  each PPO iteration collects n_steps×n_envs = {roll} env steps  "
+        f"(log jumps in chunks of ~{roll}; ~{approx_updates:.1f} gradient updates for this run).",
         file=sys.stderr,
     )
-    if args.timesteps < roll * 5:
+    if args.timesteps < roll * 15:
+        suggested = max(args.timesteps, roll * 25, 2_000_000)
         print(
-            f"WARNING: {args.timesteps} timesteps is only ~{approx_updates:.1f} updates; "
-            f"try --timesteps {max(args.timesteps, roll * 20)} or more for stable learning.",
+            f"WARNING: --timesteps {args.timesteps} is only ~{approx_updates:.1f} updates "
+            f"(each update needs {roll} env steps). For meaningful learning use at least "
+            f"--timesteps {suggested} unless you are only sanity-checking the pipeline.",
             file=sys.stderr,
         )
     if args.render:
@@ -319,8 +329,8 @@ def main() -> None:
     else:
         print("Using CPU for PPO networks (env stepping is always CPU-bound).")
     print(
-        "Note: high env FPS in headless mode is normal — learning is driven by total_timesteps, "
-        "not wall-clock. Use --n-steps / --physics-substeps if you want heavier updates or physics.",
+        "Headless env sim is very fast (1000+ steps/s) — wall-clock stays short unless --timesteps is large. "
+        "Heavier PPO batches: --n-steps / --physics-substeps.",
         file=sys.stderr,
     )
 
