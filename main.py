@@ -58,6 +58,22 @@ if ENABLE_GAME:
                      track_info['startingcoordy'].iloc[0],
                      track_info['angle'].iloc[0])
 
+checkpoint_path = os.path.join(BASE_DIR, 'ASSETS', 'TRACKS', track_info['dirname'].iloc[0], 'CHECKPOINTS')
+checkpoints = [
+    pygame.image.load(os.path.join(checkpoint_path, "CHECKPOINTONE.png")).convert_alpha(),
+    pygame.image.load(os.path.join(checkpoint_path, "CHECKPOINTTWO.png")).convert_alpha(),
+    pygame.image.load(os.path.join(checkpoint_path, "CHECKPOINTTHREE.png")).convert_alpha(),
+    pygame.image.load(os.path.join(checkpoint_path, "CHECKPOINTFOUR.png")).convert_alpha(),
+    pygame.image.load(os.path.join(checkpoint_path, "CHECKPOINTFIVE.png")).convert_alpha(),
+]
+
+for i in range(len(checkpoints)-1):
+    checkpoints[i] = pygame.transform.scale(checkpoints[i], (1000, 1000))
+
+active_cpmask = pygame.mask.from_surface(checkpoints[0])
+#active_CP = checkpoints[0]
+respawn_CP = (track_info["startingcoordx"].iloc[0],track_info['startingcoordy'].iloc[0])
+
 # --- Main Loop --- #
 running = True
 while running:
@@ -95,6 +111,7 @@ while running:
 
     # --- Draw background ---
     screen.blit(background_img, (0, 0))
+    #screen.blit(checkpoints[0],(0,0))
     #screen.blit(track_img, (0, 0))
     #screen.blit(deadzone_img, (0, 0))
 
@@ -129,6 +146,15 @@ while running:
         friction = 0 if track_mask.overlap(player_mask, player_offset) else 1
         player.update(pinput_accel, pinput_dir, dt, friction)
         screen.blit(rotated_player, player_rect.topleft)
+
+        if boundary_mask.overlap(player_mask, player_offset):
+            player.car_pos[0],player.car_pos[1]=respawn_CP[0],respawn_CP[1] 
+
+        if active_cpmask.overlap(player_mask,player_offset):
+            i+=1
+            active_cpmask=pygame.mask.from_surface(checkpoints[i])
+            respawn_CP = (player.car_pos[0],player.car_pos[1])
+            
     screen.blit(rotated_npc, npc_rect.topleft)
     pygame.display.flip()
 
