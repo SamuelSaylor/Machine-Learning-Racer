@@ -82,22 +82,31 @@ while running:
 
     # --- Draw background ---
     screen.blit(background_img, (0, 0))
-    #screen.blit(track_img, (0, 0))
-    #screen.blit(deadzone_img, (0, 0))
+    screen.blit(track_img, (0, 0))
+    screen.blit(deadzone_img, (0, 0))
 
     # --- NPC car update ---
     rotated_npc = pygame.transform.rotate(npc_car_img, npc_car.angle)
     npc_rect = rotated_npc.get_rect(center=(npc_car.car_pos[0], npc_car.car_pos[1]))
     npc_mask = pygame.mask.from_surface(rotated_npc)
     npc_offset = (npc_rect.left, npc_rect.top)
+    screen.blit(rotated_npc, npc_rect.topleft)
+
+    npc_x = int(npc_car.car_pos[0])
+    npc_y = int(npc_car.car_pos[1])
+    
+    npc_on_track = False
+    if 0 <= npc_x < WIDTH and 0 <= npc_y < HEIGHT:
+        npc_on_track = track_mask.get_at((npc_x, npc_y))
 
     if boundary_mask.overlap(npc_mask, npc_offset):
-        npc_car.update(0, 0, dt, 2)
-    elif not track_mask.overlap(npc_mask, npc_offset):
-        npc_car.update(0, 0, dt, 1)
+        npc_car.update(0, 0, dt, 2)  # crash
+    elif not npc_on_track:
+        npc_car.update(0, 0, dt, 1)  # off track
+        #print("NPC off track!")
     else:
-        npc_car.update(0, 0, dt, 0)
-    screen.blit(rotated_npc, npc_rect.topleft)
+        npc_car.update(0, 0, dt, 0)  # on track
+        #print("NPC on track!")
 
     # --- Player car update ---
     if player:
