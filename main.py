@@ -10,7 +10,9 @@ import os
 import pandas as pd
 
 pygame.init()
-pygame.mixer.quit()  # stop the sounds
+## audio stuff 
+engine_playing = False
+audio = pygame.mixer.Sound("ASSETS/AUDIO/f1_sound.mp3")
 
 # --- Get the track information --- #
 df = pd.read_csv('ASSETS/DATA/track_data.csv')
@@ -147,6 +149,16 @@ while running:
         friction = 0 if track_mask.overlap(player_mask, player_offset) else 1
         player.update(pinput_accel, pinput_dir, dt, friction)
         screen.blit(rotated_player, player_rect.topleft)
+        is_stopped = abs(player.speed) < 0.01
+
+        if is_stopped:
+            if engine_playing:
+                audio.stop()
+                engine_playing = False
+        else:
+            if not engine_playing:
+                audio.play(loops=-1)
+                engine_playing = True
 
         if boundary_mask.overlap(player_mask, player_offset):
             player.car_pos[0],player.car_pos[1]=respawn_CP[0],respawn_CP[1] 
