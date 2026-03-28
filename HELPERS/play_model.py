@@ -31,16 +31,27 @@ def main() -> None:
     if not path.endswith(".zip"):
         path = path + ".zip"
 
+    # Load weights only — do NOT pass env= here or SB3 wraps your env in DummyVecEnv/Monitor
+    # and stepping/rendering no longer matches this RacingEnv instance.
+    model = PPO.load(path, device="cpu", print_system_info=False)
+
     env = RacingEnv(
         base_dir=_ROOT,
         track_name=args.track,
         domain_randomization=args.dr,
         headless=False,
     )
-    model = PPO.load(path, env=env)
+
+    if not os.environ.get("DISPLAY"):
+        print(
+            "WARNING: DISPLAY is not set. If you are on SSH, run on the machine's desktop "
+            "or use `ssh -X` / Wayland so a pygame window can open.",
+            file=sys.stderr,
+        )
 
     clock = env._pg.time.Clock()
     obs, _ = env.reset()
+    env.render()
     running = True
 
     while running:
@@ -55,6 +66,7 @@ def main() -> None:
 
         if terminated or truncated:
             obs, _ = env.reset()
+            env.render()
 
     env.close()
 
