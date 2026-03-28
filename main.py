@@ -34,12 +34,12 @@ player_car_img = pygame.image.load(os.path.join(BASE_DIR, 'ASSETS', 'CARS', 'Red
 player_car_img = pygame.transform.scale(player_car_img, (10, 20))
 
 # Track / Deadzone / Background
-track_path = os.path.join(BASE_DIR, 'ASSETS', 'TRACKS', 'BUDAPEST')
+track_path = os.path.join(BASE_DIR, 'ASSETS', 'TRACKS', track_info['dirname'].iloc[0])
 track_img = pygame.image.load(os.path.join(track_path, "BOUNDARY.png")).convert_alpha()
 track_img = pygame.transform.scale(track_img, (1000, 1000))
 deadzone_img = pygame.image.load(os.path.join(track_path, "DEADZONE.png")).convert_alpha()
 deadzone_img = pygame.transform.scale(deadzone_img, (1000, 1000))
-background_path = os.path.join(BASE_DIR, 'ASSETS', 'TRACKS', track_info['dirname'].iloc[0], 'COSMETIC.png')
+background_path = os.path.join(track_path, 'COSMETIC.png')
 background_img = pygame.image.load(background_path).convert()
 background_img = pygame.transform.scale(background_img, (1000, 1000))
 
