@@ -9,10 +9,8 @@ Run from project root:
 
 TensorBoard: tensorboard --logdir ./tb_logs  (actor/critic losses, entropy, episode reward)
 
-How the car learns to navigate: PPO maximizes discounted return from rewards (speed on-track,
-penalties off-track / time, crash reset). Ray observations give local geometry; the policy does
-not see the full map—it learns reactive driving that generalizes when rewards align with lap
-progress. Add checkpoints / progress rewards later for tighter lap-time optimization.
+Rewards: forward + on-track + sequential checkpoints; penalties for reverse, off-track, deadzone
+(respawn). Observations include checkpoint progress. Retrain if obs size changed — old .zip may not load.
 """
 from __future__ import annotations
 
@@ -206,6 +204,11 @@ def _parse_args() -> argparse.Namespace:
         default=0.85,
         help="With --render and --render-grid 1, scale the single view (0.25–1.0 of 1000 px).",
     )
+    p.add_argument(
+        "--no-train-log",
+        action="store_true",
+        help="Disable per-episode reward breakdown and throttle/forward diagnostics on stdout.",
+    )
     return p.parse_args()
 
 
@@ -229,6 +232,7 @@ def main() -> None:
         "domain_randomization": args.dr,
         # Training render composites offscreen frames; keep all envs headless for one shared window.
         "headless": True,
+        "train_log": not bool(args.no_train_log),
     }
     if args.render:
         env_kwargs["window_scale"] = float(args.render_window_scale)

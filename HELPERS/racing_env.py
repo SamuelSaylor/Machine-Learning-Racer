@@ -1,9 +1,9 @@
 """
 Gymnasium racing environment aligned with main.py mask logic and RaceCar physics.
 
-Learning signal: the agent maximizes return from speed/on-track rewards and ray observations
-that encode local layout. It does not "see" the whole track at once—it learns a policy that
-maps (last action, rays, speed) to the same discrete controls as the player.
+Learning signal: forward/on-track/checkpoint rewards; penalties for reverse and leaving the surface;
+ray observations plus checkpoint progress. Checkpoints follow ASSETS/TRACKS/<track>/CHECKPOINTS/*.png
+(same order as main.py).
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from PIL import Image
 
 from HELPERS.racecar import RaceCar
 
-# Observation vector layout (Box shape (15,) with n_rays=9, default). See RacingEnv.observation_space.
+# Observation vector layout (Box shape (16,) with n_rays=9, default). See RacingEnv.observation_space.
 OBSERVATION_LAYOUT = """
 Index  Meaning (all float32, roughly in [-1, 1] unless noted)
 -----  --------
@@ -30,6 +30,7 @@ Index  Meaning (all float32, roughly in [-1, 1] unless noted)
 12     +1 if last contact was "good" (on BOUNDARY, not in DEADZONE), else -1
 13     +1 if "off_track", else -1
 14     +1 if "boundary" (deadzone), else -1
+15     Checkpoint progress: 2*cp_idx/(n_cp-1)-1 when n_cp>=2, else 0 (which checkpoint is next)
 
 Action: MultiDiscrete([3,3]) → accel_idx, steer_idx → maps to {-1,0,1} × {-1,0,1} like main.py keys.
 """
@@ -80,6 +81,15 @@ def _load_rgba_np(path: str, size: Tuple[int, int]) -> np.ndarray:
     return np.array(Image.open(path).convert("RGBA").resize(size, Image.NEAREST))
 
 
+_CHECKPOINT_FILENAMES = (
+    "CHECKPOINTONE.png",
+    "CHECKPOINTTWO.png",
+    "CHECKPOINTTHREE.png",
+    "CHECKPOINTFOUR.png",
+    "CHECKPOINTFIVE.png",
+)
+
+
 class RacingEnv(gym.Env):
     """
     One car per env. Actions match main.py: accel in {-1,0,1}, steer in {-1,0,1}.
@@ -102,6 +112,7 @@ class RacingEnv(gym.Env):
         seed: Optional[int] = None,
         headless: bool = True,
         window_scale: float = 0.8,
+        train_log: bool = False,
     ):
         super().__init__()
         self.base_dir = base_dir
@@ -112,6 +123,7 @@ class RacingEnv(gym.Env):
         self.dr = domain_randomization
         self.max_episode_steps = max_episode_steps
         self._headless = headless
+        self._train_log = bool(train_log)
 
         # World stays screen_size (e.g. 1000×1000). Window is scaled down so the full map fits
         # on typical displays (avoids the bottom being cut off by taskbars / max window height).
@@ -146,6 +158,12 @@ class RacingEnv(gym.Env):
         self._last_accel_idx = 1
         self._last_steer_idx = 1
         self._steps_on_good = 0
+        self._cp_idx = 0
+        self._respawn_cp: Tuple[float, float] = (0.0, 0.0)
+        self._cp_masks: list[Any] = []
+        self._lap_count = 0
+        self._pending_episode_print: Optional[Dict[str, Any]] = None
+        self._ep_log: Dict[str, Any] = {}
         self._car_surface_base = _load_surface_rgba(
             self._pg,
             os.path.join(base_dir, "ASSETS", "CARS", car_image_name),
@@ -155,7 +173,7 @@ class RacingEnv(gym.Env):
         # Spaces: same discrete commands as main.py (up/down exclusive, left/right exclusive)
         self.action_space = spaces.MultiDiscrete([3, 3])
 
-        obs_dim = 2 + 1 + n_rays + 3  # last actions, speed, rays, flags
+        obs_dim = 2 + 1 + n_rays + 3 + 1  # last actions, speed, rays, flags, checkpoint progress
         self.observation_space = spaces.Box(
             low=-1.0, high=1.0, shape=(obs_dim,), dtype=np.float32
         )
@@ -167,9 +185,31 @@ class RacingEnv(gym.Env):
         self._road_good: Optional[np.ndarray] = None
         self._h: int = screen_size[1]
         self._w: int = screen_size[0]
-        self._track_cache: Dict[str, Tuple[Any, Any, np.ndarray]] = {}
+        self._track_cache: Dict[str, Tuple[Any, Any, np.ndarray, list[Any]]] = {}
 
         self._load_track_assets(self._pick_track_row())
+
+    def _load_checkpoint_masks(self, tdir: str) -> list[Any]:
+        """Sequential checkpoint masks (same order as main.py). Missing folder/files → empty list."""
+        cp_dir = os.path.join(tdir, "CHECKPOINTS")
+        out: list[Any] = []
+        if not os.path.isdir(cp_dir):
+            return out
+        for name in _CHECKPOINT_FILENAMES:
+            path = os.path.join(cp_dir, name)
+            if not os.path.isfile(path):
+                continue
+            surf = _load_surface_rgba(self._pg, path, self.screen_size)
+            out.append(self._pg.mask.from_surface(surf))
+        return out
+
+    def _checkpoint_obs(self) -> float:
+        n = len(self._cp_masks)
+        if n == 0:
+            return 0.0
+        if n == 1:
+            return -1.0 if self._cp_idx == 0 else 1.0
+        return float(2.0 * self._cp_idx / float(n - 1) - 1.0)
 
     def _pick_track_row(self) -> pd.Series:
         if self._track_name is not None:
@@ -204,10 +244,11 @@ class RacingEnv(gym.Env):
     def _load_track_assets(self, track_row: pd.Series) -> None:
         dirname = str(track_row["dirname"])
         if dirname in self._track_cache:
-            tm, bm, rg = self._track_cache[dirname]
+            tm, bm, rg, cp_masks = self._track_cache[dirname]
             self._track_mask = tm
             self._boundary_mask = bm
             self._road_good = rg
+            self._cp_masks = cp_masks
             self._track_row = track_row
             tdir = os.path.join(self.base_dir, "ASSETS", "TRACKS", dirname)
             cosmetic_path = os.path.join(tdir, "COSMETIC.png")
@@ -228,10 +269,13 @@ class RacingEnv(gym.Env):
         d_rgba = _load_rgba_np(deadzone_path, self.screen_size)
         road_good, _ = _build_numpy_road_mask(b_rgba, d_rgba)
 
-        self._track_cache[dirname] = (track_m, boundary_m, road_good)
+        cp_masks = self._load_checkpoint_masks(tdir)
+
+        self._track_cache[dirname] = (track_m, boundary_m, road_good, cp_masks)
         self._track_mask = track_m
         self._boundary_mask = boundary_m
         self._road_good = road_good
+        self._cp_masks = cp_masks
         self._track_row = track_row
 
         cosmetic_path = os.path.join(tdir, "COSMETIC.png")
@@ -298,8 +342,14 @@ class RacingEnv(gym.Env):
         b_good = 1.0 if state == "good" else -1.0
         b_off = 1.0 if state == "off_track" else -1.0
         b_bnd = 1.0 if state == "boundary" else -1.0
+        cp = np.array([self._checkpoint_obs()], dtype=np.float32)
         return np.concatenate(
-            [np.array([la, ls, spd], dtype=np.float32), rays, np.array([b_good, b_off, b_bnd], dtype=np.float32)],
+            [
+                np.array([la, ls, spd], dtype=np.float32),
+                rays,
+                np.array([b_good, b_off, b_bnd], dtype=np.float32),
+                cp,
+            ],
             axis=0,
         )
 
@@ -309,12 +359,48 @@ class RacingEnv(gym.Env):
         seed: Optional[int] = None,
         options: Optional[Dict[str, Any]] = None,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
+        if self._train_log and self._pending_episode_print is not None:
+            p = self._pending_episode_print
+            ep_len = max(1, int(p.get("ep_len", 1)))
+            mismatch_pct = 100.0 * float(p.get("steps_mapping_mismatch", 0)) / float(ep_len)
+            throttle_pct = 100.0 * float(p.get("steps_throttle_cmd", 0)) / float(ep_len)
+            moving_fwd_pct = 100.0 * float(p.get("steps_moving_forward", 0)) / float(ep_len)
+            print(
+                "[RacingEnv] "
+                f"ep_return={p.get('ep_return', 0.0):.2f} len={ep_len} "
+                f"laps={p.get('lap_count', 0)} | "
+                f"r_fwd={p.get('r_forward', 0.0):.2f} r_on_track={p.get('r_on_track', 0.0):.2f} "
+                f"r_cp={p.get('r_checkpoint', 0.0):.2f} r_lap={p.get('r_lap', 0.0):.2f} "
+                f"p_rev={p.get('p_backward', 0.0):.2f} p_off={p.get('p_off_track', 0.0):.2f} "
+                f"p_bnd={p.get('p_boundary', 0.0):.2f} | "
+                f"throttle_cmd={throttle_pct:.0f}% moving_forward={moving_fwd_pct:.0f}% "
+                f"MAP_MISMATCH={mismatch_pct:.0f}% (throttle but speed<0 → action/physics bug?)",
+                flush=True,
+            )
+            self._pending_episode_print = None
+
         if seed is not None:
             self._rng = np.random.default_rng(seed)
         self._episode_steps = 0
         self._last_accel_idx = 1
         self._last_steer_idx = 1
         self._steps_on_good = 0
+        self._cp_idx = 0
+        self._lap_count = 0
+        self._ep_log = {
+            "ep_return": 0.0,
+            "ep_len": 0,
+            "r_forward": 0.0,
+            "r_on_track": 0.0,
+            "r_checkpoint": 0.0,
+            "r_lap": 0.0,
+            "p_backward": 0.0,
+            "p_off_track": 0.0,
+            "p_boundary": 0.0,
+            "steps_throttle_cmd": 0,
+            "steps_moving_forward": 0,
+            "steps_mapping_mismatch": 0,
+        }
 
         track_row = self._pick_track_row()
         self._load_track_assets(track_row)
@@ -332,6 +418,8 @@ class RacingEnv(gym.Env):
         self.car.acceleration = stats["acceleration"]
         self.car.braking = stats["braking"]
         self.car.turn_speed = stats["turn_speed"]
+
+        self._respawn_cp = (float(sx), float(sy))
 
         return self._observation(), {}
 
@@ -358,44 +446,118 @@ class RacingEnv(gym.Env):
 
         self.car.update(input_accel, input_dir, dt, friction)
 
+        car_mask, rect = self._masks_for_car()
+        offset = (rect.left, rect.top)
+
         state2, _, _ = self._contact_state()
         reward = 0.0
         terminated = False
         truncated = self._episode_steps >= self.max_episode_steps
 
+        # Reward components (logged for training diagnostics)
+        r_forward = 0.0
+        r_on_track = 0.0
+        r_checkpoint = 0.0
+        r_lap = 0.0
+        p_backward = 0.0
+        p_off_track = 0.0
+        p_boundary = 0.0
+
+        ms = max(float(self.car.max_speed), 1e-6)
         speed = float(self.car.speed)
         speed_abs = abs(speed)
-        speed_n = speed_abs / max(float(self.car.max_speed), 1e-6)
-        # Positive speed = forward along car heading (RaceCar convention)
-        forward_n = max(0.0, speed) / max(float(self.car.max_speed), 1e-6)
+        speed_n = speed_abs / ms
+        forward_n = max(0.0, speed) / ms
 
-        # Rewards / penalties (notes.txt + main.py semantics)
+        wants_forward = accel_idx == 2
+        moving_forward = speed > 1e-3
+        mapping_mismatch = wants_forward and speed < -1e-3
+
+        # Boundary (deadzone): respawn like main.py — no episode terminal, strong penalty
         if state2 == "boundary":
-            reward -= 25.0
-            terminated = True
-        elif state2 == "off_track":
-            reward -= 0.08
-            reward -= 0.002 * speed_n
-        else:
-            # On track ("good")
-            reward += 0.08 * forward_n
-            reward += 0.02
-            self._steps_on_good += 1
-            reward += 0.0004 * float(self._steps_on_good)
-            # Discourage sitting in reverse on the racing line (early policy often backs up).
-            if speed < 0.0:
-                rev_n = min(1.0, (-speed) / max(float(self.car.max_speed), 1e-6))
-                reward -= 0.06 * rev_n
+            p_boundary = 10.0
+            reward -= p_boundary
+            self.car.car_pos[0] = self._respawn_cp[0]
+            self.car.car_pos[1] = self._respawn_cp[1]
+            self.car.speed = 0.0
+            state2, _, _ = self._contact_state()
+            car_mask, rect = self._masks_for_car()
+            offset = (rect.left, rect.top)
 
-        reward -= 0.0012
+        if state2 == "off_track":
+            p_off_track = 0.14 + 0.004 * speed_n
+            reward -= p_off_track
+        elif state2 == "good":
+            # Rewards: forward motion + staying on the racing surface
+            r_forward = 0.12 * forward_n
+            r_on_track = 0.025
+            reward += r_forward + r_on_track
+            self._steps_on_good += 1
+            # Punish backward travel on the racing line
+            if speed < 0.0:
+                rev_n = min(1.0, (-speed) / ms)
+                p_backward = 0.1 * rev_n
+                reward -= p_backward
+
+            # Checkpoints (same order as main.py: next mask must be hit)
+            if self._cp_masks and self._cp_idx < len(self._cp_masks):
+                if self._cp_masks[self._cp_idx].overlap(car_mask, offset):
+                    r_checkpoint = 15.0
+                    reward += r_checkpoint
+                    self._respawn_cp = (float(self.car.car_pos[0]), float(self.car.car_pos[1]))
+                    self._cp_idx += 1
+                    if self._cp_idx >= len(self._cp_masks):
+                        r_lap = 35.0
+                        reward += r_lap
+                        self._lap_count += 1
+                        self._cp_idx = 0
+
+        # Small per-step cost (encourages finishing / progress)
+        reward -= 0.0008
 
         final_reward = 0.0
-        if truncated and not terminated:
-            # Bonus for reaching the horizon without a boundary crash (scaled by time on good surface).
-            final_reward = 2.5 + 0.0008 * float(self._steps_on_good)
+        if truncated:
+            final_reward = 1.5 + 0.0005 * float(self._steps_on_good)
             reward += final_reward
 
-        info: Dict[str, Any] = {"contact": state2, "final_reward": float(final_reward)}
+        self._ep_log["ep_return"] += float(reward)
+        self._ep_log["ep_len"] += 1
+        self._ep_log["r_forward"] += r_forward
+        self._ep_log["r_on_track"] += r_on_track
+        self._ep_log["r_checkpoint"] += r_checkpoint
+        self._ep_log["r_lap"] += r_lap
+        self._ep_log["p_backward"] += p_backward
+        self._ep_log["p_off_track"] += p_off_track
+        self._ep_log["p_boundary"] += p_boundary
+        if wants_forward:
+            self._ep_log["steps_throttle_cmd"] += 1
+        if moving_forward:
+            self._ep_log["steps_moving_forward"] += 1
+        if mapping_mismatch:
+            self._ep_log["steps_mapping_mismatch"] += 1
+
+        if truncated:
+            self._pending_episode_print = {**dict(self._ep_log), "lap_count": self._lap_count}
+
+        info: Dict[str, Any] = {
+            "contact": state2,
+            "final_reward": float(final_reward),
+            "reward_total": float(reward),
+            "r_forward": float(r_forward),
+            "r_on_track": float(r_on_track),
+            "r_checkpoint": float(r_checkpoint),
+            "r_lap": float(r_lap),
+            "p_backward": float(p_backward),
+            "p_off_track": float(p_off_track),
+            "p_boundary": float(p_boundary),
+            "accel_cmd": float(input_accel),
+            "speed": float(speed),
+            "wants_forward": bool(wants_forward),
+            "moving_forward": bool(moving_forward),
+            "mapping_mismatch": bool(mapping_mismatch),
+            "checkpoint_idx": int(self._cp_idx),
+            "num_checkpoints": int(len(self._cp_masks)),
+        }
         return self._observation(), float(reward), terminated, truncated, info
 
     def render_frame_surface(self) -> Optional[Any]:
