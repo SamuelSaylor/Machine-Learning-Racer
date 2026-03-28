@@ -5,6 +5,9 @@ Uses the same RacingEnv observations/actions as training. Run in a separate term
 
   python -m HELPERS.play_model --model models/ppo_racer_v1.zip --track Budapest
   python -m HELPERS.play_model --model models/ppo_racer_v1 --window-scale 0.65
+  python -m HELPERS.play_model --model models/ppo_racer_v1 --deterministic   # argmax (can sit still); default matches PPO rollouts (stochastic sample)
+
+Action indices map to accel/steer {-1,0,1}. Training rollouts sample from the policy; use --deterministic only if you want argmax (often [1,*] = coast at rest).
 """
 from __future__ import annotations
 
@@ -21,6 +24,15 @@ if _ROOT not in sys.path:
 from stable_baselines3 import PPO
 
 from HELPERS.racing_env import OBSERVATION_LAYOUT, RacingEnv
+
+
+def _decode_action(action: np.ndarray) -> tuple[float, float]:
+    """Same mapping as RacingEnv.step: indices 0,1,2 -> -1,0,1."""
+    a = np.asarray(action, dtype=np.int64).reshape(-1)
+    ia, is_ = int(np.clip(a[0], 0, 2)), int(np.clip(a[1], 0, 2))
+    accel = float([-1, 0, 1][ia])
+    steer = float([-1, 0, 1][is_])
+    return accel, steer
 
 
 def main() -> None:
@@ -43,6 +55,18 @@ def main() -> None:
         "--show-obs",
         action="store_true",
         help="Print observation layout (same as training) and exit",
+    )
+    p.add_argument(
+        "--deterministic",
+        action="store_true",
+        help="Use policy argmax (deterministic). Default is stochastic sampling — same as PPO environment rollouts — so the car usually moves like in training.",
+    )
+    p.add_argument(
+        "--sanity-frames",
+        type=int,
+        default=0,
+        metavar="N",
+        help="For the first N frames, force full throttle [2,1] to verify physics/viewer (then use the policy).",
     )
     args = p.parse_args()
 
@@ -84,8 +108,13 @@ def main() -> None:
             if event.type == env._pg.QUIT:
                 running = False
 
-        action, _ = model.predict(obs, deterministic=True)
-        action = np.asarray(action, dtype=np.int64).reshape(-1)
+        if frame < args.sanity_frames:
+            action = np.array([2, 1], dtype=np.int64)
+        else:
+            # Match training: rollouts sample actions; argmax often sticks to coast (idx 1) at rest
+            action, _ = model.predict(obs, deterministic=args.deterministic)
+            action = np.asarray(action, dtype=np.int64).reshape(-1)
+        acc, steer = _decode_action(action)
 
         obs, _reward, terminated, truncated, info = env.step(action)
         env.render()
@@ -94,8 +123,9 @@ def main() -> None:
         if args.debug and frame % 30 == 0:
             c = env.car
             print(
-                f"action={action.tolist()} speed={getattr(c, 'speed', None)} "
-                f"pos={getattr(c, 'car_pos', None)} contact={info.get('contact')}",
+                f"idx={action.tolist()} -> accel={acc} steer={steer} | "
+                f"speed={getattr(c, 'speed', None)} pos={getattr(c, 'car_pos', None)} "
+                f"contact={info.get('contact')}",
                 file=sys.stderr,
             )
 
