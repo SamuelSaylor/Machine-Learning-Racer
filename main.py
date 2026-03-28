@@ -68,6 +68,19 @@ while running:
             running = False
 
     # --- Player input ---
+    pinput_accel = 0
+    pinput_dir = 0
+    keys = pygame.key.get_pressed()
+    if keys[pygame.K_w]:
+        pinput_accel = 1
+    elif keys[pygame.K_s]:
+        pinput_accel = -1
+    if keys[pygame.K_a]:
+        pinput_dir = -1
+    elif keys[pygame.K_d]:
+        pinput_dir = 1
+
+    # --- AI input ---
     input_accel = 0
     input_dir = 0
     keys = pygame.key.get_pressed()
@@ -82,31 +95,22 @@ while running:
 
     # --- Draw background ---
     screen.blit(background_img, (0, 0))
-    screen.blit(track_img, (0, 0))
-    screen.blit(deadzone_img, (0, 0))
+    #screen.blit(track_img, (0, 0))
+    #screen.blit(deadzone_img, (0, 0))
 
     # --- NPC car update ---
     rotated_npc = pygame.transform.rotate(npc_car_img, npc_car.angle)
     npc_rect = rotated_npc.get_rect(center=(npc_car.car_pos[0], npc_car.car_pos[1]))
     npc_mask = pygame.mask.from_surface(rotated_npc)
     npc_offset = (npc_rect.left, npc_rect.top)
-    screen.blit(rotated_npc, npc_rect.topleft)
-
-    npc_x = int(npc_car.car_pos[0])
-    npc_y = int(npc_car.car_pos[1])
-    
-    npc_on_track = False
-    if 0 <= npc_x < WIDTH and 0 <= npc_y < HEIGHT:
-        npc_on_track = track_mask.get_at((npc_x, npc_y))
 
     if boundary_mask.overlap(npc_mask, npc_offset):
-        npc_car.update(0, 0, dt, 2)  # crash
-    elif not npc_on_track:
-        npc_car.update(0, 0, dt, 1)  # off track
-        #print("NPC off track!")
+        npc_car.update(input_accel, input_dir, dt, 2)
+    elif not track_mask.overlap(npc_mask, npc_offset):
+        npc_car.update(input_accel, input_dir, dt, 1)
     else:
-        npc_car.update(0, 0, dt, 0)  # on track
-        #print("NPC on track!")
+        npc_car.update(input_accel, input_dir, dt, 0)
+    screen.blit(rotated_npc, npc_rect.topleft)
 
     # --- Player car update ---
     if player:
@@ -115,7 +119,7 @@ while running:
         player_mask = pygame.mask.from_surface(rotated_player)
         player_offset = (player_rect.left, player_rect.top)
         friction = 0 if track_mask.overlap(player_mask, player_offset) else 1
-        player.update(input_accel, input_dir, dt, friction)
+        player.update(pinput_accel, pinput_dir, dt, friction)
         screen.blit(rotated_player, player_rect.topleft)
 
     pygame.display.flip()
