@@ -2,22 +2,30 @@ import pygame
 import sys
 from HELPERS.racecar import RaceCar
 import os
+import pandas as pd
+import numpy as np
 
 pygame.init()
 pygame.mixer.quit() #stop the sounds
 
+
+# --- Get the track information --- #
+df = pd.read_csv('ASSETS/DATA/track_data.csv')
+track_info = df.loc[df['trackname'] == 'Budapest']
+
+# --- Set up Screen --- #
 WIDTH, HEIGHT = 1000, 1000
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Race Car")
+pygame.display.set_caption(track_info['trackname'])
 clock = pygame.time.Clock()
 
-# --- Load Images ---
+# --- Load Images --- #
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 #uncomment the other images to see the boundaries : )
 
 image_path = os.path.join(BASE_DIR, 'ASSETS', 'CARS', 'BlueRacer.png')
-background_path = os.path.join(BASE_DIR, 'ASSETS', 'TRACKS', 'BUDAPEST', 'COSMETIC.png')
+background_path = os.path.join(BASE_DIR, 'ASSETS', 'TRACKS', track_info['dirname'], 'COSMETIC.png')
 #track_path = os.path.join(BASE_DIR, 'ASSETS', 'TRACKS', 'BUDAPEST')
 #deadzone_path = os.path.join(BASE_DIR, 'ASSETS', 'TRACKS', 'BUDAPEST')
 car_img = pygame.image.load(image_path).convert_alpha()
@@ -29,12 +37,11 @@ car_img = pygame.transform.scale(car_img, (20, 32)) #change size based on what w
 background_img = pygame.image.load(background_path).convert()
 background_img = pygame.transform.scale(background_img,(1000,1000))
 
-
+#who are we?
 car = RaceCar()
 
 running = True
 
-car_width, car_height = 40, 20    
     
 while running:
     dt = clock.tick(60) / 1000.0
