@@ -12,7 +12,7 @@ class RaceCar:
         self.max_deacceleration = -200
         self.turn_speed = 150
 
-    def update(self, input_accel, input_dir, dt):
+    def update(self, input_accel, input_dir, dt, friction):
         # update speed
         friction = 100
         if input_accel > 0:
