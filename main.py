@@ -27,11 +27,11 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # NPC car image
 npc_car_img = pygame.image.load(os.path.join(BASE_DIR, 'ASSETS', 'CARS', 'BlueRacer.png')).convert_alpha()
-npc_car_img = pygame.transform.scale(npc_car_img, (20, 32))
+npc_car_img = pygame.transform.scale(npc_car_img, (10, 20))
 
 # Player car image
 player_car_img = pygame.image.load(os.path.join(BASE_DIR, 'ASSETS', 'CARS', 'RedRacer.png')).convert_alpha()
-player_car_img = pygame.transform.scale(player_car_img, (20, 32))
+player_car_img = pygame.transform.scale(player_car_img, (10, 20))
 
 # Track / Deadzone / Background
 track_path = os.path.join(BASE_DIR, 'ASSETS', 'TRACKS', 'BUDAPEST')
