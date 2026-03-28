@@ -81,7 +81,9 @@ def _load_rgba_np(path: str, size: Tuple[int, int]) -> np.ndarray:
     return np.array(Image.open(path).convert("RGBA").resize(size, Image.NEAREST))
 
 
+# Same order and files as main.py (CHECKPOINTS/*.png); missing files are skipped.
 _CHECKPOINT_FILENAMES = (
+    "CHECKPOINTZERO.png",
     "CHECKPOINTONE.png",
     "CHECKPOINTTWO.png",
     "CHECKPOINTTHREE.png",
@@ -91,8 +93,8 @@ _CHECKPOINT_FILENAMES = (
 
 # On racing line: discourage weaving — steer index changes (snappy left/right) and turning at speed.
 # Not-straight is scaled by forward_n**2 so slow turns in hairpins stay cheap; fast S-shapes cost more.
-_STEER_PENALTY_NOT_STRAIGHT: float = 0.008
-_STEER_PENALTY_INDEX_CHANGE: float = 0.003  # × abs(steer_idx - prev_steer_idx), max delta 2
+_STEER_PENALTY_NOT_STRAIGHT: float = 0.032
+_STEER_PENALTY_INDEX_CHANGE: float = 0.012  # × abs(steer_idx - prev_steer_idx), max delta 2
 
 
 class RacingEnv(gym.Env):
