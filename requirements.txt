@@ -4,3 +4,6 @@ gymnasium
 numpy
 matplotlib
 pandas
+torch
+Pillow
+tqdm

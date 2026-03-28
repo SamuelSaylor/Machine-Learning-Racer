@@ -1,5 +1,5 @@
 Positive Reinforcements 
-- Go fast, checkpoint, time without touching boundaries
+- Go fast, checkpoint, time without touching boundaries, stay on track
 
 Negative Reinforcements
 - off course, time limit, elapsed time
