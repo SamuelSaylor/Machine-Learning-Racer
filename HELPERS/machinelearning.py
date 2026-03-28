@@ -20,10 +20,29 @@ _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+import torch
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_util import make_vec_env
 
 from HELPERS.racing_env import RacingEnv
+
+
+def _resolve_device(name: str) -> str:
+    name = name.lower().strip()
+    if name == "auto":
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    if name == "cuda":
+        if not torch.cuda.is_available():
+            raise RuntimeError(
+                "CUDA requested but torch.cuda.is_available() is False. "
+                "Update your NVIDIA driver and/or reinstall PyTorch for your CUDA version "
+                "(see https://pytorch.org/get-started/locally/). "
+                "Run: nvidia-smi   and   python -c \"import torch; print(torch.__version__, torch.version.cuda)\""
+            )
+        return "cuda"
+    if name == "cpu":
+        return "cpu"
+    raise ValueError(f"Unknown --device {name!r}; use auto, cuda, or cpu")
 
 
 def _parse_args() -> argparse.Namespace:
@@ -55,6 +74,13 @@ def _parse_args() -> argparse.Namespace:
         default=True,
         help="Rich progress bar (needs: pip install rich tqdm). Use --no-progress-bar to disable.",
     )
+    p.add_argument(
+        "--device",
+        type=str,
+        default="auto",
+        choices=("auto", "cuda", "cpu"),
+        help="Where to run the policy/value networks (env sim stays on CPU). Default: auto = cuda if available.",
+    )
     return p.parse_args()
 
 
@@ -76,11 +102,18 @@ def main() -> None:
         env_kwargs=env_kwargs,
     )
 
+    device = _resolve_device(args.device)
+    if device == "cuda":
+        print(f"Using GPU: {torch.cuda.get_device_name(0)}")
+    else:
+        print("Using CPU for PPO networks (env stepping is always CPU-bound).")
+
     model = PPO(
         "MlpPolicy",
         vec_env,
         verbose=1,
         seed=args.seed,
+        device=device,
         n_steps=2048,
         batch_size=256,
         learning_rate=3e-4,
