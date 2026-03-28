@@ -209,6 +209,28 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Disable per-episode reward breakdown and throttle/forward diagnostics on stdout.",
     )
+    p.add_argument(
+        "--physics-substeps",
+        type=int,
+        default=1,
+        metavar="K",
+        help="Apply the same action for K consecutive 1/60s physics updates per env step "
+        "(richer dynamics; same 2500 decision steps per episode). Default: 1.",
+    )
+    p.add_argument(
+        "--n-steps",
+        type=int,
+        default=2048,
+        metavar="N",
+        help="PPO rollout length per env (larger = more on-policy data per update, slower iterations).",
+    )
+    p.add_argument(
+        "--batch-size",
+        type=int,
+        default=256,
+        metavar="N",
+        help="PPO minibatch size (must be <= n_steps * n_envs).",
+    )
     return p.parse_args()
 
 
@@ -238,6 +260,13 @@ def main() -> None:
         env_kwargs["window_scale"] = float(args.render_window_scale)
     if args.track:
         env_kwargs["track_name"] = args.track
+    ps = max(1, int(args.physics_substeps))
+    if ps > 1:
+        env_kwargs["physics_substeps"] = ps
+        print(
+            f"physics_substeps={ps}: each policy step runs {ps} physics ticks (higher-fidelity sim per decision).",
+            file=sys.stderr,
+        )
 
     if args.render:
         vec_env = make_vec_env(
@@ -260,6 +289,18 @@ def main() -> None:
         print(f"Using GPU: {torch.cuda.get_device_name(0)}")
     else:
         print("Using CPU for PPO networks (env stepping is always CPU-bound).")
+    print(
+        "Note: high env FPS in headless mode is normal — learning is driven by total_timesteps, "
+        "not wall-clock. Use --n-steps / --physics-substeps if you want heavier updates or physics.",
+        file=sys.stderr,
+    )
+
+    n_steps = int(args.n_steps)
+    batch_size = int(args.batch_size)
+    if batch_size > n_steps * n_envs:
+        raise ValueError(
+            f"--batch-size ({batch_size}) must be <= n_steps * n_envs ({n_steps * n_envs})."
+        )
 
     model = PPO(
         "MlpPolicy",
@@ -267,8 +308,8 @@ def main() -> None:
         verbose=1,
         seed=args.seed,
         device=device,
-        n_steps=2048,
-        batch_size=256,
+        n_steps=n_steps,
+        batch_size=batch_size,
         learning_rate=3e-4,
         gamma=0.99,
         tensorboard_log=args.tensorboard,

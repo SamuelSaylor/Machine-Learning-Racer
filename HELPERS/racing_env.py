@@ -113,6 +113,7 @@ class RacingEnv(gym.Env):
         headless: bool = True,
         window_scale: float = 0.8,
         train_log: bool = False,
+        physics_substeps: int = 1,
     ):
         super().__init__()
         self.base_dir = base_dir
@@ -124,6 +125,7 @@ class RacingEnv(gym.Env):
         self.max_episode_steps = max_episode_steps
         self._headless = headless
         self._train_log = bool(train_log)
+        self._physics_substeps = max(1, int(physics_substeps))
 
         # World stays screen_size (e.g. 1000×1000). Window is scaled down so the full map fits
         # on typical displays (avoids the bottom being cut off by taskbars / max window height).
@@ -374,7 +376,8 @@ class RacingEnv(gym.Env):
                 f"p_rev={p.get('p_backward', 0.0):.2f} p_off={p.get('p_off_track', 0.0):.2f} "
                 f"p_bnd={p.get('p_boundary', 0.0):.2f} | "
                 f"throttle_cmd={throttle_pct:.0f}% moving_forward={moving_fwd_pct:.0f}% "
-                f"MAP_MISMATCH={mismatch_pct:.0f}% (throttle but speed<0 → action/physics bug?)",
+                f"MAP_MISMATCH={mismatch_pct:.0f}% (throttle & speed < -max(3,12% max_speed); "
+                f"transient reverse while accelerating ignored)",
                 flush=True,
             )
             self._pending_episode_print = None
@@ -436,15 +439,15 @@ class RacingEnv(gym.Env):
         self._last_steer_idx = steer_idx
 
         dt = 1.0 / 60.0
-        state, _, _ = self._contact_state()
-        if state == "boundary":
-            friction = 2.0
-        elif state == "off_track":
-            friction = 1.0
-        else:
-            friction = 0.0
-
-        self.car.update(input_accel, input_dir, dt, friction)
+        for _ in range(self._physics_substeps):
+            state, _, _ = self._contact_state()
+            if state == "boundary":
+                friction = 2.0
+            elif state == "off_track":
+                friction = 1.0
+            else:
+                friction = 0.0
+            self.car.update(input_accel, input_dir, dt, friction)
 
         car_mask, rect = self._masks_for_car()
         offset = (rect.left, rect.top)
@@ -464,17 +467,11 @@ class RacingEnv(gym.Env):
         p_boundary = 0.0
 
         ms = max(float(self.car.max_speed), 1e-6)
-        speed = float(self.car.speed)
-        speed_abs = abs(speed)
-        speed_n = speed_abs / ms
-        forward_n = max(0.0, speed) / ms
-
-        wants_forward = accel_idx == 2
-        moving_forward = speed > 1e-3
-        mapping_mismatch = wants_forward and speed < -1e-3
+        boundary_this_step = False
 
         # Boundary (deadzone): respawn like main.py — no episode terminal, strong penalty
         if state2 == "boundary":
+            boundary_this_step = True
             p_boundary = 10.0
             reward -= p_boundary
             self.car.car_pos[0] = self._respawn_cp[0]
@@ -484,19 +481,32 @@ class RacingEnv(gym.Env):
             car_mask, rect = self._masks_for_car()
             offset = (rect.left, rect.top)
 
+        # Must read speed *after* possible respawn — otherwise good-state rewards use stale speed.
+        speed = float(self.car.speed)
+        speed_abs = abs(speed)
+        speed_n = speed_abs / ms
+        forward_n = max(0.0, speed) / ms
+
+        wants_forward = accel_idx == 2
+        # Meaningful forward motion (not noise / crawl)
+        moving_forward = speed > max(0.5, 0.04 * ms)
+        # Only flag mapping issues when still clearly reversing while throttling (not 1–2 frames recovering from reverse)
+        _mismatch_thr = max(3.0, 0.12 * ms)
+        mapping_mismatch = wants_forward and speed < -_mismatch_thr
+
         if state2 == "off_track":
             p_off_track = 0.14 + 0.004 * speed_n
             reward -= p_off_track
-        elif state2 == "good":
-            # Rewards: forward motion + staying on the racing surface
-            r_forward = 0.12 * forward_n
-            r_on_track = 0.025
+        elif state2 == "good" and not boundary_this_step:
+            # Forward motion should dominate; passive on-track was too high (0.025*2500 drowned r_fwd).
+            r_forward = 0.28 * forward_n
+            r_on_track = 0.007
             reward += r_forward + r_on_track
             self._steps_on_good += 1
             # Punish backward travel on the racing line
             if speed < 0.0:
                 rev_n = min(1.0, (-speed) / ms)
-                p_backward = 0.1 * rev_n
+                p_backward = 0.14 * rev_n
                 reward -= p_backward
 
             # Checkpoints (same order as main.py: next mask must be hit)
