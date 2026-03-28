@@ -93,8 +93,8 @@ _CHECKPOINT_FILENAMES = (
 
 # On racing line: discourage weaving — steer index changes (snappy left/right) and turning at speed.
 # Not-straight is scaled by forward_n**2 so slow turns in hairpins stay cheap; fast S-shapes cost more.
-_STEER_PENALTY_NOT_STRAIGHT: float = 0.032
-_STEER_PENALTY_INDEX_CHANGE: float = 0.012  # × abs(steer_idx - prev_steer_idx), max delta 2
+_STEER_PENALTY_NOT_STRAIGHT: float = 0.32
+_STEER_PENALTY_INDEX_CHANGE: float = 0.12  # × abs(steer_idx - prev_steer_idx), max delta 2
 
 
 class RacingEnv(gym.Env):
@@ -516,7 +516,8 @@ class RacingEnv(gym.Env):
         mapping_mismatch = wants_forward and speed < -_mismatch_thr
 
         if state2 == "off_track":
-            p_off_track = 0.14 + 0.004 * speed_n
+            # Same coefficient scale as steering penalties (strong discouragement vs leaving the surface)
+            p_off_track = _STEER_PENALTY_NOT_STRAIGHT + _STEER_PENALTY_INDEX_CHANGE * speed_n
             reward -= p_off_track
         elif state2 == "good" and not boundary_this_step:
             # Forward motion should dominate; passive on-track was too high (0.025*2500 drowned r_fwd).
