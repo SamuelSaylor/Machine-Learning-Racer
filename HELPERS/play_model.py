@@ -4,6 +4,7 @@ Watch a trained PPO drive one car on the real track (pygame window).
 Uses the same RacingEnv observations/actions as training. Run in a separate terminal from training.
 
   python -m HELPERS.play_model --model models/ppo_racer_v1.zip --track Budapest
+  python -m HELPERS.play_model --model models/ppo_racer_v1 --window-scale 0.65
 """
 from __future__ import annotations
 
@@ -25,6 +26,12 @@ def main() -> None:
     p.add_argument("--model", type=str, required=True, help="Path to .zip from training (no .zip suffix is ok)")
     p.add_argument("--track", type=str, default=None, help="trackname from track_data.csv (default: random)")
     p.add_argument("--dr", type=float, default=0.05, help="Domain randomization (match training)")
+    p.add_argument(
+        "--window-scale",
+        type=float,
+        default=0.8,
+        help="Scale the full 1000×1000 map into the window (0.25–1.0). Lower = smaller window, entire map visible.",
+    )
     args = p.parse_args()
 
     path = args.model
@@ -40,6 +47,7 @@ def main() -> None:
         track_name=args.track,
         domain_randomization=args.dr,
         headless=False,
+        window_scale=args.window_scale,
     )
 
     if not os.environ.get("DISPLAY"):

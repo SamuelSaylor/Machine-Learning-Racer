@@ -23,7 +23,7 @@ from HELPERS.racecar import RaceCar
 _pg: Any = None
 
 
-def _ensure_pygame(headless: bool, screen_size: Tuple[int, int]) -> Any:
+def _ensure_pygame(headless: bool, display_size: Tuple[int, int]) -> Any:
     global _pg
     if _pg is not None:
         return _pg
@@ -37,7 +37,7 @@ def _ensure_pygame(headless: bool, screen_size: Tuple[int, int]) -> Any:
     if headless:
         pygame_mod.display.set_mode((1, 1))
     else:
-        pygame_mod.display.set_mode(screen_size)
+        pygame_mod.display.set_mode(display_size)
     return _pg
 
 
@@ -86,6 +86,7 @@ class RacingEnv(gym.Env):
         screen_size: Tuple[int, int] = (1000, 1000),
         seed: Optional[int] = None,
         headless: bool = True,
+        window_scale: float = 0.8,
     ):
         super().__init__()
         self.base_dir = base_dir
@@ -97,9 +98,22 @@ class RacingEnv(gym.Env):
         self.max_episode_steps = max_episode_steps
         self._headless = headless
 
-        self._pg = _ensure_pygame(headless, screen_size)
+        # World stays screen_size (e.g. 1000×1000). Window is scaled down so the full map fits
+        # on typical displays (avoids the bottom being cut off by taskbars / max window height).
+        if not headless:
+            ws = max(0.25, min(1.0, float(window_scale)))
+            self._window_size = (
+                max(320, int(screen_size[0] * ws)),
+                max(320, int(screen_size[1] * ws)),
+            )
+        else:
+            self._window_size = (1, 1)
+            self._frame_buf = None
+
+        self._pg = _ensure_pygame(headless, self._window_size if not headless else (1, 1))
         if not headless:
             self._pg.display.set_caption("RacingEnv (policy eval)")
+            self._frame_buf = self._pg.Surface(screen_size)
         self._background_img: Optional[Any] = None
 
         tracks_path = os.path.join(base_dir, "ASSETS", "DATA", "track_data.csv")
@@ -357,14 +371,16 @@ class RacingEnv(gym.Env):
         return self._observation(), float(reward), terminated, truncated, info
 
     def render(self) -> Optional[Any]:
-        """Draw the car on the track (only when headless=False). Call from your game loop at ~60 FPS."""
-        if self._headless or self.car is None or self._background_img is None:
+        """Draw the full world (1000×1000) then scale to the window so the entire map stays visible."""
+        if self._headless or self.car is None or self._background_img is None or self._frame_buf is None:
             return None
-        surface = self._pg.display.get_surface()
-        surface.blit(self._background_img, (0, 0))
+        self._frame_buf.blit(self._background_img, (0, 0))
         rotated = self._pg.transform.rotate(self._car_surface_base, self.car.angle)
         rect = rotated.get_rect(center=(self.car.car_pos[0], self.car.car_pos[1]))
-        surface.blit(rotated, rect.topleft)
+        self._frame_buf.blit(rotated, rect.topleft)
+        win = self._pg.display.get_surface()
+        scaled = self._pg.transform.smoothscale(self._frame_buf, self._window_size)
+        win.blit(scaled, (0, 0))
         self._pg.display.flip()
         return None
 
