@@ -1,3 +1,3 @@
 import gymnasium as gym
-from stable_baseline3 import PPO
+from stable_baselines3 import PPO
 
