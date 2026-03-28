@@ -81,6 +81,12 @@ def _load_rgba_np(path: str, size: Tuple[int, int]) -> np.ndarray:
     return np.array(Image.open(path).convert("RGBA").resize(size, Image.NEAREST))
 
 
+def _smallest_angle_delta_deg(a: float, b: float) -> float:
+    """Smallest absolute difference between two headings in degrees (0..180)."""
+    d = abs(float(b) - float(a)) % 360.0
+    return float(d if d <= 180.0 else 360.0 - d)
+
+
 # Same order and files as main.py (CHECKPOINTS/*.png); missing files are skipped.
 _CHECKPOINT_FILENAMES = (
     "CHECKPOINTZERO.png",
@@ -95,6 +101,9 @@ _CHECKPOINT_FILENAMES = (
 # Not-straight is scaled by forward_n**2 so slow turns in hairpins stay cheap; fast S-shapes cost more.
 _STEER_PENALTY_NOT_STRAIGHT: float = 0.32
 _STEER_PENALTY_INDEX_CHANGE: float = 0.12  # × abs(steer_idx - prev_steer_idx), max delta 2
+# Penalize actual heading spin (donuts): large °/step while moving; not covered by discrete steer penalties.
+_YAW_SPIN_COEF: float = 0.00045
+_SPEED_REWARD_COEF: float = 0.65  # × forward_n**2 on good surface (high speed >> crawling)
 
 
 class RacingEnv(gym.Env):
@@ -385,8 +394,9 @@ class RacingEnv(gym.Env):
                 f"(total_reward = reward - punish) | "
                 f"r_fwd={p.get('r_forward', 0.0):.2f} r_on_track={p.get('r_on_track', 0.0):.2f} "
                 f"r_cp={p.get('r_checkpoint', 0.0):.2f} r_lap={p.get('r_lap', 0.0):.2f} "
-                f"r_thr_bonus={p.get('r_throttle_bonus', 0.0):.2f} "
+                f"r_trunc={p.get('r_trunc', 0.0):.2f} "
                 f"p_rev={p.get('p_backward', 0.0):.2f} p_steer={p.get('p_steer', 0.0):.2f} "
+                f"p_yaw={p.get('p_yaw', 0.0):.2f} "
                 f"p_off={p.get('p_off_track', 0.0):.2f} p_bnd={p.get('p_boundary', 0.0):.2f} | "
                 f"throttle_cmd={throttle_pct:.0f}% moving_forward={moving_fwd_pct:.0f}% "
                 f"MAP_MISMATCH={mismatch_pct:.0f}% (throttle & speed < -max(3,12% max_speed); "
@@ -410,9 +420,10 @@ class RacingEnv(gym.Env):
             "r_on_track": 0.0,
             "r_checkpoint": 0.0,
             "r_lap": 0.0,
-            "r_throttle_bonus": 0.0,
+            "r_trunc": 0.0,
             "p_backward": 0.0,
             "p_steer": 0.0,
+            "p_yaw": 0.0,
             "p_off_track": 0.0,
             "p_boundary": 0.0,
             "reward_sum": 0.0,
@@ -440,6 +451,7 @@ class RacingEnv(gym.Env):
         self.car.turn_speed = stats["turn_speed"]
 
         self._respawn_cp = (float(sx), float(sy))
+        self._last_angle = float(self.car.angle)
 
         return self._observation(), {}
 
@@ -481,9 +493,9 @@ class RacingEnv(gym.Env):
         r_on_track = 0.0
         r_checkpoint = 0.0
         r_lap = 0.0
-        r_throttle_bonus = 0.0
         p_backward = 0.0
         p_steer = 0.0
+        p_yaw = 0.0
         p_off_track = 0.0
         p_boundary = 0.0
 
@@ -520,8 +532,9 @@ class RacingEnv(gym.Env):
             p_off_track = _STEER_PENALTY_NOT_STRAIGHT + _STEER_PENALTY_INDEX_CHANGE * speed_n
             reward -= p_off_track
         elif state2 == "good" and not boundary_this_step:
-            # Forward motion should dominate; passive on-track was too high (0.025*2500 drowned r_fwd).
-            r_forward = 0.56 * forward_n
+            # Speed along car heading only (not lap progress). Quadratic so donuts at high |speed|
+            # are still cushioned vs straight-line speed — see p_yaw for spin.
+            r_forward = _SPEED_REWARD_COEF * (forward_n * forward_n)
             r_on_track = 0.007
             reward += r_forward + r_on_track
             self._steps_on_good += 1
@@ -530,10 +543,6 @@ class RacingEnv(gym.Env):
                 rev_n = min(1.0, (-speed) / ms)
                 p_backward = 0.22 * rev_n
                 reward -= p_backward
-            # Small bonus for choosing throttle on the racing line (reduces coast/reverse-only policies)
-            if accel_idx == 2:
-                r_throttle_bonus = 0.01
-                reward += r_throttle_bonus
 
             # Penalize steering away from straight (worse at high forward speed) and rapid steer flips
             steer_delta = abs(steer_idx - prev_steer_idx)
@@ -542,6 +551,11 @@ class RacingEnv(gym.Env):
             if steer_idx != 1:
                 p_steer += _STEER_PENALTY_NOT_STRAIGHT * (forward_n * forward_n)
             reward -= p_steer
+
+            # Actual heading change per step (donuts = large °/step while moving)
+            da_deg = _smallest_angle_delta_deg(self._last_angle, float(self.car.angle))
+            p_yaw = _YAW_SPIN_COEF * (da_deg * da_deg) * (speed_n * speed_n)
+            reward -= p_yaw
 
             # Checkpoints (same order as main.py: next mask must be hit)
             if self._cp_masks and self._cp_idx < len(self._cp_masks):
@@ -565,11 +579,13 @@ class RacingEnv(gym.Env):
             final_reward = 1.5 + 0.0005 * float(self._steps_on_good)
             reward += final_reward
 
+        self._last_angle = float(self.car.angle)
+
         # Episode accounting: reward_sum = bonuses; punish_sum = penalties (incl. time cost); total = r − p ≈ ep_return
         step_reward_pos = (
-            r_forward + r_on_track + r_checkpoint + r_lap + r_throttle_bonus + (final_reward if truncated else 0.0)
+            r_forward + r_on_track + r_checkpoint + r_lap + (final_reward if truncated else 0.0)
         )
-        step_punish = p_backward + p_steer + p_off_track + p_boundary + step_time_cost
+        step_punish = p_backward + p_steer + p_yaw + p_off_track + p_boundary + step_time_cost
         self._ep_log["reward_sum"] += float(step_reward_pos)
         self._ep_log["punish_sum"] += float(step_punish)
 
@@ -579,9 +595,11 @@ class RacingEnv(gym.Env):
         self._ep_log["r_on_track"] += r_on_track
         self._ep_log["r_checkpoint"] += r_checkpoint
         self._ep_log["r_lap"] += r_lap
-        self._ep_log["r_throttle_bonus"] += r_throttle_bonus
+        if truncated:
+            self._ep_log["r_trunc"] += float(final_reward)
         self._ep_log["p_backward"] += p_backward
         self._ep_log["p_steer"] += p_steer
+        self._ep_log["p_yaw"] += p_yaw
         self._ep_log["p_off_track"] += p_off_track
         self._ep_log["p_boundary"] += p_boundary
         if wants_forward:
@@ -606,9 +624,9 @@ class RacingEnv(gym.Env):
             "r_on_track": float(r_on_track),
             "r_checkpoint": float(r_checkpoint),
             "r_lap": float(r_lap),
-            "r_throttle_bonus": float(r_throttle_bonus),
             "p_backward": float(p_backward),
             "p_steer": float(p_steer),
+            "p_yaw": float(p_yaw),
             "p_off_track": float(p_off_track),
             "p_boundary": float(p_boundary),
             "accel_cmd": float(input_accel),
