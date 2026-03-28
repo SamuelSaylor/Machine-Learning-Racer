@@ -1,3 +1,7 @@
 venv/
+<<<<<<< HEAD
 venv3.12/
+=======
+.DS_Store
+>>>>>>> cfa564022add4024406dba34fb134040a05eb258
 __pycache__
