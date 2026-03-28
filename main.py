@@ -22,21 +22,29 @@ clock = pygame.time.Clock()
 # --- Load Images --- #
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-#uncomment the other images to see the boundaries : )
-
+#image paths
 image_path = os.path.join(BASE_DIR, 'ASSETS', 'CARS', 'BlueRacer.png')
 background_path = os.path.join(BASE_DIR, 'ASSETS', 'TRACKS', track_info['dirname'].iloc[0], 'COSMETIC.png')
-#track_path = os.path.join(BASE_DIR, 'ASSETS', 'TRACKS', 'BUDAPEST')
-#deadzone_path = os.path.join(BASE_DIR, 'ASSETS', 'TRACKS', 'BUDAPEST')
+track_path = os.path.join(BASE_DIR, 'ASSETS', 'TRACKS', 'BUDAPEST')
+deadzone_path = os.path.join(BASE_DIR, 'ASSETS', 'TRACKS', 'BUDAPEST')
+#images load/scale
 car_img = pygame.image.load(image_path).convert_alpha()
 car_img = pygame.transform.scale(car_img, (20, 32)) #change size based on what we need
-#track_img = pygame.image.load(os.path.join(track_path, "BOUNDARY.png")).convert_alpha()
-#track_img = pygame.transform.scale(track_img, (1000,1000))
-#deadzone_img = pygame.image.load(os.path.join(track_path, "DEADZONE.png")).convert_alpha()
-#deadzone_img = pygame.transform.scale(deadzone_img, (1000,1000))
+
+track_img = pygame.image.load(os.path.join(track_path, "BOUNDARY.png")).convert_alpha()
+track_img = pygame.transform.scale(track_img, (1000,1000))
+
+deadzone_img = pygame.image.load(os.path.join(track_path, "DEADZONE.png")).convert_alpha()
+deadzone_img = pygame.transform.scale(deadzone_img, (1000,1000))
+
 background_img = pygame.image.load(background_path).convert()
 background_img = pygame.transform.scale(background_img,(1000,1000))
 
+
+# --- Create the masks ---- #
+track_mask = pygame.mask.from_surface(track_img) 
+boundary_mask = pygame.mask.from_surface(deadzone_img) 
+car_mask = pygame.mask.from_surface(car_img)
 #who are we?
 car = RaceCar(track_info['startingcoordx'].iloc[0], track_info['startingcordy'].iloc[0], track_info['angle'].iloc[0])
 
@@ -65,16 +73,29 @@ while running:
     elif keys[pygame.K_RIGHT]:
         input_dir = 1
 
-    car.update(input_accel, input_dir, dt,150)
+    
 
     screen.fill((30, 30, 30))
 
     rotated_car = pygame.transform.rotate(car_img, car.angle)
     car_rect = rotated_car.get_rect(center=(car.car_pos[0], car.car_pos[1]))
+    car_mask = pygame.mask.from_surface(rotated_car)
+    
+    #collission offset
+    offset = (car_rect.left, car_rect.top)
+    
+    if boundary_mask.overlap(car_mask, offset):
+        car.update(input_accel, input_dir, dt,2)
+        print("Boundary hit!")
+    elif not track_mask.overlap(car_mask, offset):
+        car.update(input_accel, input_dir, dt,1)
+        print("Off track!")
+    else: 
+        car.update(input_accel, input_dir, dt,0)
 
     screen.blit(background_img, (0, 0))
-    #screen.blit(track_img, (0, 0)) #uncomment to see boundaries
-    #screen.blit(deadzone_img, (0, 0))
+    screen.blit(track_img, (0, 0)) #uncomment to see boundaries
+    screen.blit(deadzone_img, (0, 0))
     screen.blit(rotated_car, car_rect.topleft)
 
     pygame.display.flip()
