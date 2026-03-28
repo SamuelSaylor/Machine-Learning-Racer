@@ -62,6 +62,7 @@ if ENABLE_GAME:
 
 checkpoint_path = os.path.join(BASE_DIR, 'ASSETS', 'TRACKS', track_info['dirname'].iloc[0], 'CHECKPOINTS')
 checkpoints = [
+    pygame.image.load(os.path.join(checkpoint_path, "CHECKPOINTZERO.png")).convert_alpha(),
     pygame.image.load(os.path.join(checkpoint_path, "CHECKPOINTONE.png")).convert_alpha(),
     pygame.image.load(os.path.join(checkpoint_path, "CHECKPOINTTWO.png")).convert_alpha(),
     pygame.image.load(os.path.join(checkpoint_path, "CHECKPOINTTHREE.png")).convert_alpha(),
