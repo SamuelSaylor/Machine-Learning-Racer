@@ -55,10 +55,11 @@ while running:
 
     screen.fill((30, 30, 30))
 
-    rotated_car = pygame.transform.rotate(car_img, -car.angle)
-    rect = rotated_car.get_rect(center=(car.car_pos[0], car.car_pos[1]))
-    screen.blit(background_img, (0,0))
-    screen.blit(rotated_car, rect.topleft)
+    rotated_car = pygame.transform.rotate(car_img, car.angle)
+    car_rect = rotated_car.get_rect(center=(car.car_pos[0], car.car_pos[1]))
+
+    screen.blit(background_img, (0, 0))
+    screen.blit(rotated_car, car_rect.topleft)
 
     pygame.display.flip()
 

@@ -40,6 +40,6 @@ class RaceCar:
             self.angle += input_dir * self.turn_speed * dt
 
         # update position
-        rad = math.radians(self.angle)
-        self.car_pos[0] += math.cos(rad) * self.speed * dt
-        self.car_pos[1] += math.sin(rad) * self.speed * dt
+        rad = math.radians(-self.angle)
+        self.car_pos[0] += math.sin(rad) * self.speed * dt
+        self.car_pos[1] -= math.cos(rad) * self.speed * dt
