@@ -49,6 +49,12 @@ def _parse_args() -> argparse.Namespace:
         default=0.05,
         help="Domain randomization +/- fraction on car stats (default 5%%)",
     )
+    p.add_argument(
+        "--progress-bar",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Rich progress bar (needs: pip install rich tqdm). Use --no-progress-bar to disable.",
+    )
     return p.parse_args()
 
 
@@ -80,7 +86,13 @@ def main() -> None:
         learning_rate=3e-4,
         gamma=0.99,
     )
-    model.learn(total_timesteps=args.timesteps, progress_bar=True)
+    use_pb = args.progress_bar
+    if use_pb:
+        try:
+            import rich  # noqa: F401
+        except ImportError:
+            use_pb = False
+    model.learn(total_timesteps=args.timesteps, progress_bar=use_pb)
     model.save(args.save_path)
     vec_env.close()
 
