@@ -1,0 +1,13 @@
+car_name,max_speed,acceleration,braking,turn_speed
+BlueRacer,150,100,-200,150
+CarrotRacer,145,110,-190,155
+GreenRacer,148,95,-205,145
+GreyRacer,165,90,-210,135
+MatchRacer,138,105,-195,165
+MidnightRacer,160,102,-215,148
+OrangeRacer,152,108,-198,152
+PinkRacer,142,98,-188,162
+PrincessRacer,146,96,-200,158
+RedRacer,158,115,-205,142
+StripeRacer,140,112,-192,168
+WhiteRacer,155,100,-198,150
