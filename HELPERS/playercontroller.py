@@ -8,7 +8,6 @@ def turning(BUTTON):
     pass
 
 
-
 '''
 keys = pygame.key.get_pressed()
 
