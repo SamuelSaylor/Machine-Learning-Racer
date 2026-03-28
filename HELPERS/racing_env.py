@@ -17,16 +17,33 @@ import gymnasium as gym
 from gymnasium import spaces
 from PIL import Image
 
-# Headless pygame for mask overlap (matches main.py)
-os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
-import pygame  # noqa: E402
-
 from HELPERS.racecar import RaceCar
 
+# Lazy so training can use SDL dummy driver; play_model uses a real window (separate process).
+_pg: Any = None
 
-def _load_surface_rgba(path: str, size: Tuple[int, int]) -> pygame.Surface:
-    surf = pygame.image.load(path).convert_alpha()
-    return pygame.transform.scale(surf, size)
+
+def _ensure_pygame(headless: bool, screen_size: Tuple[int, int]) -> Any:
+    global _pg
+    if _pg is not None:
+        return _pg
+    if headless:
+        os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    import pygame as pygame_mod
+
+    _pg = pygame_mod
+    pygame_mod.init()
+    pygame_mod.mixer.quit()
+    if headless:
+        pygame_mod.display.set_mode((1, 1))
+    else:
+        pygame_mod.display.set_mode(screen_size)
+    return _pg
+
+
+def _load_surface_rgba(pg: Any, path: str, size: Tuple[int, int]) -> Any:
+    surf = pg.image.load(path).convert_alpha()
+    return pg.transform.scale(surf, size)
 
 
 def _build_numpy_road_mask(
@@ -54,7 +71,7 @@ class RacingEnv(gym.Env):
     Observation: last accel, last steer, normalized speed, ray distances, contact flags.
     """
 
-    metadata = {"render_modes": []}
+    metadata = {"render_modes": ["human"]}
 
     def __init__(
         self,
@@ -68,6 +85,7 @@ class RacingEnv(gym.Env):
         car_image_name: str = "BlueRacer.png",
         screen_size: Tuple[int, int] = (1000, 1000),
         seed: Optional[int] = None,
+        headless: bool = True,
     ):
         super().__init__()
         self.base_dir = base_dir
@@ -77,11 +95,12 @@ class RacingEnv(gym.Env):
         self.ray_max = ray_max
         self.dr = domain_randomization
         self.max_episode_steps = max_episode_steps
+        self._headless = headless
 
-        if not pygame.get_init():
-            pygame.init()
-        if pygame.display.get_surface() is None:
-            pygame.display.set_mode((1, 1))
+        self._pg = _ensure_pygame(headless, screen_size)
+        if not headless:
+            self._pg.display.set_caption("RacingEnv (policy eval)")
+        self._background_img: Optional[Any] = None
 
         tracks_path = os.path.join(base_dir, "ASSETS", "DATA", "track_data.csv")
         cars_path = os.path.join(base_dir, "ASSETS", "DATA", "car_data.csv")
@@ -99,6 +118,7 @@ class RacingEnv(gym.Env):
         self._last_steer_idx = 1
         self._steps_on_good = 0
         self._car_surface_base = _load_surface_rgba(
+            self._pg,
             os.path.join(base_dir, "ASSETS", "CARS", car_image_name),
             (20, 32),
         )
@@ -113,12 +133,12 @@ class RacingEnv(gym.Env):
 
         self.car: Optional[RaceCar] = None
         self._track_row: Optional[pd.Series] = None
-        self._track_mask: Optional[pygame.mask.Mask] = None
-        self._boundary_mask: Optional[pygame.mask.Mask] = None
+        self._track_mask: Optional[Any] = None
+        self._boundary_mask: Optional[Any] = None
         self._road_good: Optional[np.ndarray] = None
         self._h: int = screen_size[1]
         self._w: int = screen_size[0]
-        self._track_cache: Dict[str, Tuple[pygame.mask.Mask, pygame.mask.Mask, np.ndarray]] = {}
+        self._track_cache: Dict[str, Tuple[Any, Any, np.ndarray]] = {}
 
         self._load_track_assets(self._pick_track_row())
 
@@ -160,16 +180,21 @@ class RacingEnv(gym.Env):
             self._boundary_mask = bm
             self._road_good = rg
             self._track_row = track_row
+            if not self._headless:
+                tdir = os.path.join(self.base_dir, "ASSETS", "TRACKS", dirname)
+                cosmetic_path = os.path.join(tdir, "COSMETIC.png")
+                bg = self._pg.image.load(cosmetic_path).convert()
+                self._background_img = self._pg.transform.scale(bg, self.screen_size)
             return
 
         tdir = os.path.join(self.base_dir, "ASSETS", "TRACKS", dirname)
         boundary_path = os.path.join(tdir, "BOUNDARY.png")
         deadzone_path = os.path.join(tdir, "DEADZONE.png")
 
-        b_surf = _load_surface_rgba(boundary_path, self.screen_size)
-        d_surf = _load_surface_rgba(deadzone_path, self.screen_size)
-        track_m = pygame.mask.from_surface(b_surf)
-        boundary_m = pygame.mask.from_surface(d_surf)
+        b_surf = _load_surface_rgba(self._pg, boundary_path, self.screen_size)
+        d_surf = _load_surface_rgba(self._pg, deadzone_path, self.screen_size)
+        track_m = self._pg.mask.from_surface(b_surf)
+        boundary_m = self._pg.mask.from_surface(d_surf)
 
         b_rgba = _load_rgba_np(boundary_path, self.screen_size)
         d_rgba = _load_rgba_np(deadzone_path, self.screen_size)
@@ -181,13 +206,18 @@ class RacingEnv(gym.Env):
         self._road_good = road_good
         self._track_row = track_row
 
-    def _masks_for_car(self) -> Tuple[pygame.mask.Mask, pygame.Rect]:
-        rotated = pygame.transform.rotate(self._car_surface_base, self.car.angle)
+        if not self._headless:
+            cosmetic_path = os.path.join(tdir, "COSMETIC.png")
+            bg = self._pg.image.load(cosmetic_path).convert()
+            self._background_img = self._pg.transform.scale(bg, self.screen_size)
+
+    def _masks_for_car(self) -> Tuple[Any, Any]:
+        rotated = self._pg.transform.rotate(self._car_surface_base, self.car.angle)
         rect = rotated.get_rect(center=(self.car.car_pos[0], self.car.car_pos[1]))
-        m = pygame.mask.from_surface(rotated)
+        m = self._pg.mask.from_surface(rotated)
         return m, rect
 
-    def _contact_state(self) -> Tuple[str, pygame.mask.Mask, Tuple[int, int]]:
+    def _contact_state(self) -> Tuple[str, Any, Tuple[int, int]]:
         """Return 'boundary', 'off_track', or 'good' — same order as main.py."""
         car_mask, rect = self._masks_for_car()
         offset = (rect.left, rect.top)
@@ -325,6 +355,18 @@ class RacingEnv(gym.Env):
 
         info: Dict[str, Any] = {"contact": state2}
         return self._observation(), float(reward), terminated, truncated, info
+
+    def render(self) -> Optional[Any]:
+        """Draw the car on the track (only when headless=False). Call from your game loop at ~60 FPS."""
+        if self._headless or self.car is None or self._background_img is None:
+            return None
+        surface = self._pg.display.get_surface()
+        surface.blit(self._background_img, (0, 0))
+        rotated = self._pg.transform.rotate(self._car_surface_base, self.car.angle)
+        rect = rotated.get_rect(center=(self.car.car_pos[0], self.car.car_pos[1]))
+        surface.blit(rotated, rect.topleft)
+        self._pg.display.flip()
+        return None
 
     def close(self) -> None:
         pass
