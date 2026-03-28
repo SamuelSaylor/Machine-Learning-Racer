@@ -39,9 +39,22 @@ Action: MultiDiscrete([3,3]) → accel_idx, steer_idx → maps to {-1,0,1} × {-
 _pg: Any = None
 
 
-def _ensure_pygame(headless: bool, display_size: Tuple[int, int]) -> Any:
+def _ensure_pygame(
+    headless: bool,
+    display_size: Tuple[int, int],
+    *,
+    embed: bool = False,
+) -> Any:
+    """
+    embed=True: pygame already initialized by the host (e.g. main.py). Do not call set_mode or the dummy driver.
+    """
     global _pg
     if _pg is not None:
+        return _pg
+    if embed:
+        import pygame as pygame_mod
+
+        _pg = pygame_mod
         return _pg
     if headless:
         os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -95,6 +108,7 @@ _CHECKPOINT_FILENAMES = (
     "CHECKPOINTTHREE.png",
     "CHECKPOINTFOUR.png",
     "CHECKPOINTFIVE.png",
+    "CHECKPOINTSIXSEVEN.png",
 )
 
 # On racing line: discourage weaving — steer index changes (snappy left/right) and turning at speed.
@@ -130,6 +144,7 @@ class RacingEnv(gym.Env):
         window_scale: float = 0.8,
         train_log: bool = False,
         physics_substeps: int = 1,
+        embed_pygame: bool = False,
     ):
         super().__init__()
         self.base_dir = base_dir
@@ -154,7 +169,10 @@ class RacingEnv(gym.Env):
         else:
             self._window_size = (1, 1)
 
-        self._pg = _ensure_pygame(headless, self._window_size if not headless else (1, 1))
+        if embed_pygame:
+            self._pg = _ensure_pygame(False, screen_size, embed=True)
+        else:
+            self._pg = _ensure_pygame(headless, self._window_size if not headless else (1, 1))
         if not headless:
             self._pg.display.set_caption("RacingEnv (policy eval)")
         # Offscreen world buffer: used for human render and for training-time compositing (headless ok).

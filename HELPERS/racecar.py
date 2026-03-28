@@ -63,8 +63,8 @@ class RaceCar:
         if self.speed < -self.max_speed / 2:
             self.speed = -self.max_speed / 2
 
-        # update angle
-        if self.speed != 0:          
+        # update angle (allow turn-in-place when stopped if steering)
+        if self.speed != 0 or input_dir != 0:
             self.angle += -input_dir * self.turn_speed * dt
 
         # update position
