@@ -91,8 +91,8 @@ _CHECKPOINT_FILENAMES = (
 
 # On racing line: discourage weaving — steer index changes (snappy left/right) and turning at speed.
 # Not-straight is scaled by forward_n**2 so slow turns in hairpins stay cheap; fast S-shapes cost more.
-_STEER_PENALTY_NOT_STRAIGHT: float = 0.004
-_STEER_PENALTY_INDEX_CHANGE: float = 0.0015  # × abs(steer_idx - prev_steer_idx), max delta 2
+_STEER_PENALTY_NOT_STRAIGHT: float = 0.008
+_STEER_PENALTY_INDEX_CHANGE: float = 0.003  # × abs(steer_idx - prev_steer_idx), max delta 2
 
 
 class RacingEnv(gym.Env):
@@ -372,10 +372,15 @@ class RacingEnv(gym.Env):
             mismatch_pct = 100.0 * float(p.get("steps_mapping_mismatch", 0)) / float(ep_len)
             throttle_pct = 100.0 * float(p.get("steps_throttle_cmd", 0)) / float(ep_len)
             moving_fwd_pct = 100.0 * float(p.get("steps_moving_forward", 0)) / float(ep_len)
+            rs = float(p.get("reward_sum", 0.0))
+            ps = float(p.get("punish_sum", 0.0))
+            total_r = rs - ps
             print(
                 "[RacingEnv] "
                 f"ep_return={p.get('ep_return', 0.0):.2f} len={ep_len} "
                 f"laps={p.get('lap_count', 0)} | "
+                f"reward={rs:.2f} punish={ps:.2f} total_reward={total_r:.2f} "
+                f"(total_reward = reward - punish) | "
                 f"r_fwd={p.get('r_forward', 0.0):.2f} r_on_track={p.get('r_on_track', 0.0):.2f} "
                 f"r_cp={p.get('r_checkpoint', 0.0):.2f} r_lap={p.get('r_lap', 0.0):.2f} "
                 f"r_thr_bonus={p.get('r_throttle_bonus', 0.0):.2f} "
@@ -408,6 +413,8 @@ class RacingEnv(gym.Env):
             "p_steer": 0.0,
             "p_off_track": 0.0,
             "p_boundary": 0.0,
+            "reward_sum": 0.0,
+            "punish_sum": 0.0,
             "steps_throttle_cmd": 0,
             "steps_moving_forward": 0,
             "steps_mapping_mismatch": 0,
@@ -511,7 +518,7 @@ class RacingEnv(gym.Env):
             reward -= p_off_track
         elif state2 == "good" and not boundary_this_step:
             # Forward motion should dominate; passive on-track was too high (0.025*2500 drowned r_fwd).
-            r_forward = 0.28 * forward_n
+            r_forward = 0.56 * forward_n
             r_on_track = 0.007
             reward += r_forward + r_on_track
             self._steps_on_good += 1
@@ -547,12 +554,21 @@ class RacingEnv(gym.Env):
                         self._cp_idx = 0
 
         # Small per-step cost (encourages finishing / progress)
-        reward -= 0.0008
+        step_time_cost = 0.0008
+        reward -= step_time_cost
 
         final_reward = 0.0
         if truncated:
             final_reward = 1.5 + 0.0005 * float(self._steps_on_good)
             reward += final_reward
+
+        # Episode accounting: reward_sum = bonuses; punish_sum = penalties (incl. time cost); total = r − p ≈ ep_return
+        step_reward_pos = (
+            r_forward + r_on_track + r_checkpoint + r_lap + r_throttle_bonus + (final_reward if truncated else 0.0)
+        )
+        step_punish = p_backward + p_steer + p_off_track + p_boundary + step_time_cost
+        self._ep_log["reward_sum"] += float(step_reward_pos)
+        self._ep_log["punish_sum"] += float(step_punish)
 
         self._ep_log["ep_return"] += float(reward)
         self._ep_log["ep_len"] += 1
@@ -579,6 +595,10 @@ class RacingEnv(gym.Env):
             "contact": state2,
             "final_reward": float(final_reward),
             "reward_total": float(reward),
+            "step_reward_pos": float(step_reward_pos),
+            "step_punish": float(step_punish),
+            "episode_reward_sum": float(self._ep_log["reward_sum"]),
+            "episode_punish_sum": float(self._ep_log["punish_sum"]),
             "r_forward": float(r_forward),
             "r_on_track": float(r_on_track),
             "r_checkpoint": float(r_checkpoint),
