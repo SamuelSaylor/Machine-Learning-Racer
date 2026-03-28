@@ -1,7 +1,7 @@
 """
 Gymnasium racing environment aligned with main.py mask logic and RaceCar physics.
 
-Learning signal: forward/on-track/checkpoint rewards; penalties for reverse and leaving the surface;
+Learning signal: forward speed + checkpoints; penalties for reverse, spin, steer, and leaving the surface;
 ray observations plus checkpoint progress. Checkpoints follow ASSETS/TRACKS/<track>/CHECKPOINTS/*.png
 (same order as main.py).
 """
@@ -392,7 +392,7 @@ class RacingEnv(gym.Env):
                 f"laps={p.get('lap_count', 0)} | "
                 f"reward={rs:.2f} punish={ps:.2f} total_reward={total_r:.2f} "
                 f"(total_reward = reward - punish) | "
-                f"r_fwd={p.get('r_forward', 0.0):.2f} r_on_track={p.get('r_on_track', 0.0):.2f} "
+                f"r_fwd={p.get('r_forward', 0.0):.2f} "
                 f"r_cp={p.get('r_checkpoint', 0.0):.2f} r_lap={p.get('r_lap', 0.0):.2f} "
                 f"r_trunc={p.get('r_trunc', 0.0):.2f} "
                 f"p_rev={p.get('p_backward', 0.0):.2f} p_steer={p.get('p_steer', 0.0):.2f} "
@@ -417,7 +417,6 @@ class RacingEnv(gym.Env):
             "ep_return": 0.0,
             "ep_len": 0,
             "r_forward": 0.0,
-            "r_on_track": 0.0,
             "r_checkpoint": 0.0,
             "r_lap": 0.0,
             "r_trunc": 0.0,
@@ -490,7 +489,6 @@ class RacingEnv(gym.Env):
 
         # Reward components (logged for training diagnostics)
         r_forward = 0.0
-        r_on_track = 0.0
         r_checkpoint = 0.0
         r_lap = 0.0
         p_backward = 0.0
@@ -535,8 +533,7 @@ class RacingEnv(gym.Env):
             # Speed along car heading only (not lap progress). Quadratic so donuts at high |speed|
             # are still cushioned vs straight-line speed — see p_yaw for spin.
             r_forward = _SPEED_REWARD_COEF * (forward_n * forward_n)
-            r_on_track = 0.007
-            reward += r_forward + r_on_track
+            reward += r_forward
             self._steps_on_good += 1
             # Punish backward travel on the racing line (strong — reverse is costly vs checkpoints)
             if speed < 0.0:
@@ -583,7 +580,7 @@ class RacingEnv(gym.Env):
 
         # Episode accounting: reward_sum = bonuses; punish_sum = penalties (incl. time cost); total = r − p ≈ ep_return
         step_reward_pos = (
-            r_forward + r_on_track + r_checkpoint + r_lap + (final_reward if truncated else 0.0)
+            r_forward + r_checkpoint + r_lap + (final_reward if truncated else 0.0)
         )
         step_punish = p_backward + p_steer + p_yaw + p_off_track + p_boundary + step_time_cost
         self._ep_log["reward_sum"] += float(step_reward_pos)
@@ -592,7 +589,6 @@ class RacingEnv(gym.Env):
         self._ep_log["ep_return"] += float(reward)
         self._ep_log["ep_len"] += 1
         self._ep_log["r_forward"] += r_forward
-        self._ep_log["r_on_track"] += r_on_track
         self._ep_log["r_checkpoint"] += r_checkpoint
         self._ep_log["r_lap"] += r_lap
         if truncated:
@@ -621,7 +617,6 @@ class RacingEnv(gym.Env):
             "episode_reward_sum": float(self._ep_log["reward_sum"]),
             "episode_punish_sum": float(self._ep_log["punish_sum"]),
             "r_forward": float(r_forward),
-            "r_on_track": float(r_on_track),
             "r_checkpoint": float(r_checkpoint),
             "r_lap": float(r_lap),
             "p_backward": float(p_backward),
