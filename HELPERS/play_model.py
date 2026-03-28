@@ -61,6 +61,13 @@ def main() -> None:
         action="store_true",
         help="Sample actions from the policy (not argmax). Use if the car sits still with deterministic=True.",
     )
+    p.add_argument(
+        "--sanity-frames",
+        type=int,
+        default=0,
+        metavar="N",
+        help="For the first N frames, force full throttle [2,1] to verify physics/viewer (then use the policy).",
+    )
     args = p.parse_args()
 
     if args.show_obs:
@@ -101,8 +108,11 @@ def main() -> None:
             if event.type == env._pg.QUIT:
                 running = False
 
-        action, _ = model.predict(obs, deterministic=not args.stochastic)
-        action = np.asarray(action, dtype=np.int64).reshape(-1)
+        if frame < args.sanity_frames:
+            action = np.array([2, 1], dtype=np.int64)
+        else:
+            action, _ = model.predict(obs, deterministic=not args.stochastic)
+            action = np.asarray(action, dtype=np.int64).reshape(-1)
         acc, steer = _decode_action(action)
 
         obs, _reward, terminated, truncated, info = env.step(action)

@@ -3,6 +3,10 @@ Train PPO on RacingEnv: parallel envs, random car rows from car_data.csv + domai
 
 Run from project root:
   python -m HELPERS.machinelearning --n-envs 8 --timesteps 200000
+  python -m HELPERS.machinelearning --tensorboard ./tb_logs --timesteps 500000
+  python -m HELPERS.machinelearning --render --track Budapest --timesteps 50000   # one window, slow
+
+TensorBoard: tensorboard --logdir ./tb_logs  (actor/critic losses, entropy, episode reward)
 
 How the car learns to navigate: PPO maximizes discounted return from rewards (speed on-track,
 penalties off-track / time, crash reset). Ray observations give local geometry; the policy does
@@ -22,9 +26,33 @@ if _ROOT not in sys.path:
 
 import torch
 from stable_baselines3 import PPO
+from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.vec_env import DummyVecEnv
 
 from HELPERS.racing_env import RacingEnv
+
+
+class _PygameTrainRenderCallback(BaseCallback):
+    """Refresh the pygame window for env 0 (DummyVecEnv + RacingEnv headless=False)."""
+
+    def _on_step(self) -> bool:
+        venv = self.training_env
+        if not hasattr(venv, "envs"):
+            return True
+        e = venv.envs[0]
+        for _ in range(12):
+            if hasattr(e, "render"):
+                try:
+                    e.render()
+                    break
+                except Exception:
+                    pass
+            if hasattr(e, "env"):
+                e = e.env
+            else:
+                break
+        return True
 
 
 def _resolve_device(name: str) -> str:
@@ -81,6 +109,19 @@ def _parse_args() -> argparse.Namespace:
         choices=("auto", "cuda", "cpu"),
         help="Where to run the policy/value networks (env sim stays on CPU). Default: auto = cuda if available.",
     )
+    p.add_argument(
+        "--tensorboard",
+        type=str,
+        default=None,
+        metavar="DIR",
+        help="Log SB3 metrics (policy loss, value loss, entropy, episode reward). "
+        "Then run: tensorboard --logdir DIR",
+    )
+    p.add_argument(
+        "--render",
+        action="store_true",
+        help="Open one pygame window and show env 0 while training. Forces n_envs=1 and DummyVecEnv (slow).",
+    )
     return p.parse_args()
 
 
@@ -88,19 +129,38 @@ def main() -> None:
     args = _parse_args()
     os.makedirs(os.path.dirname(args.save_path), exist_ok=True)
 
+    n_envs = args.n_envs
+    if args.render:
+        if n_envs != 1:
+            print(
+                f"NOTE: --render only supports one env; using n_envs=1 (you passed {n_envs}).",
+                file=sys.stderr,
+            )
+        n_envs = 1
+
     env_kwargs = {
         "base_dir": _ROOT,
         "domain_randomization": args.dr,
+        "headless": not args.render,
     }
     if args.track:
         env_kwargs["track_name"] = args.track
 
-    vec_env = make_vec_env(
-        RacingEnv,
-        n_envs=args.n_envs,
-        seed=args.seed,
-        env_kwargs=env_kwargs,
-    )
+    if args.render:
+        vec_env = make_vec_env(
+            RacingEnv,
+            n_envs=n_envs,
+            seed=args.seed,
+            env_kwargs=env_kwargs,
+            vec_env_cls=DummyVecEnv,
+        )
+    else:
+        vec_env = make_vec_env(
+            RacingEnv,
+            n_envs=n_envs,
+            seed=args.seed,
+            env_kwargs=env_kwargs,
+        )
 
     device = _resolve_device(args.device)
     if device == "cuda":
@@ -118,6 +178,7 @@ def main() -> None:
         batch_size=256,
         learning_rate=3e-4,
         gamma=0.99,
+        tensorboard_log=args.tensorboard,
     )
     use_pb = args.progress_bar
     if use_pb:
@@ -125,7 +186,19 @@ def main() -> None:
             import rich  # noqa: F401
         except ImportError:
             use_pb = False
-    model.learn(total_timesteps=args.timesteps, progress_bar=use_pb)
+
+    callbacks = []
+    if args.render:
+        callbacks.append(_PygameTrainRenderCallback())
+    if args.tensorboard:
+        os.makedirs(args.tensorboard, exist_ok=True)
+        print(f"TensorBoard: tensorboard --logdir {args.tensorboard}")
+
+    model.learn(
+        total_timesteps=args.timesteps,
+        progress_bar=use_pb,
+        callback=callbacks if callbacks else None,
+    )
     model.save(args.save_path)
     vec_env.close()
 

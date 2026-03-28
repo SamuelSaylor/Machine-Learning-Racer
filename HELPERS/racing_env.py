@@ -390,6 +390,7 @@ class RacingEnv(gym.Env):
         """Draw the full world (1000×1000) then scale to the window so the entire map stays visible."""
         if self._headless or self.car is None or self._background_img is None or self._frame_buf is None:
             return None
+        self._pg.event.pump()
         self._frame_buf.blit(self._background_img, (0, 0))
         rotated = self._pg.transform.rotate(self._car_surface_base, self.car.angle)
         rect = rotated.get_rect(center=(self.car.car_pos[0], self.car.car_pos[1]))
