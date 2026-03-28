@@ -1,0 +1,37 @@
+Positive Reinforcements 
+- Go fast, checkpoint, time without touching boundaries
+
+Negative Reinforcements
+- off course, time limit, elapsed time
+
+Packages:
+-pygame, stable baseline, gymnasium, numpy, matplotlib
+
+Proposed project structure:
+data/
+-> data.csv (or whatever we get)
+
+Driver.py <-- this is the car, acceleration etc (attributes)
+CarPhysicsEngine.py (imported into driver)
+MachineLearning.py
+charts.png
+recources/
+-> assets
+
+Physics:
+acceleration, velocity, orientation
+
+Budapest Track for training. 
+
+
+Prince: Physics stuff - give sam the knowledge that the car needs for how real life physics works
+
+Samuel: make/train model
+
+Samantha: pygame: get display running, make sure object detection setup, make sure layering has priority (racer cannot go under track)
+understand ratecaseting/object mapping
+
+
+Start of hackathon: work on everything
+After lunch: start training/debug
+making plots/presentation: before the thing is due
