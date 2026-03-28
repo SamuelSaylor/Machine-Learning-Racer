@@ -264,7 +264,11 @@ class RacingEnv(gym.Env):
         stats = self._pick_car_stats()
 
         sx = float(track_row["startingcoordx"])
-        sy = float(track_row["startingcordy"])
+        # Older CSVs used typo "startingcordy"; current uses "startingcoordy"
+        if "startingcoordy" in track_row.index:
+            sy = float(track_row["startingcoordy"])
+        else:
+            sy = float(track_row["startingcordy"])
         ang = float(track_row["angle"])
         self.car = RaceCar(sx, sy, ang)
         self.car.max_speed = stats["max_speed"]
