@@ -5,9 +5,9 @@ Uses the same RacingEnv observations/actions as training. Run in a separate term
 
   python -m HELPERS.play_model --model models/ppo_racer_v1.zip --track Budapest
   python -m HELPERS.play_model --model models/ppo_racer_v1 --window-scale 0.65
-  python -m HELPERS.play_model --model models/ppo_racer_v1 --stochastic   # if car never moves: policy may be choosing no throttle (idx 1)
+  python -m HELPERS.play_model --model models/ppo_racer_v1 --deterministic   # argmax (can sit still); default matches PPO rollouts (stochastic sample)
 
-Action indices map to accel/steer {-1,0,1}. First index: 0=brake/rev, 1=coast, 2=throttle. At speed 0, coast keeps you stopped; you need idx 2 to accelerate.
+Action indices map to accel/steer {-1,0,1}. Training rollouts sample from the policy; use --deterministic only if you want argmax (often [1,*] = coast at rest).
 """
 from __future__ import annotations
 
@@ -57,9 +57,9 @@ def main() -> None:
         help="Print observation layout (same as training) and exit",
     )
     p.add_argument(
-        "--stochastic",
+        "--deterministic",
         action="store_true",
-        help="Sample actions from the policy (not argmax). Use if the car sits still with deterministic=True.",
+        help="Use policy argmax (deterministic). Default is stochastic sampling — same as PPO environment rollouts — so the car usually moves like in training.",
     )
     p.add_argument(
         "--sanity-frames",
@@ -111,7 +111,8 @@ def main() -> None:
         if frame < args.sanity_frames:
             action = np.array([2, 1], dtype=np.int64)
         else:
-            action, _ = model.predict(obs, deterministic=not args.stochastic)
+            # Match training: rollouts sample actions; argmax often sticks to coast (idx 1) at rest
+            action, _ = model.predict(obs, deterministic=args.deterministic)
             action = np.asarray(action, dtype=np.int64).reshape(-1)
         acc, steer = _decode_action(action)
 

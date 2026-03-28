@@ -365,8 +365,11 @@ class RacingEnv(gym.Env):
         terminated = False
         truncated = self._episode_steps >= self.max_episode_steps
 
-        speed = abs(float(self.car.speed))
-        speed_n = speed / max(float(self.car.max_speed), 1e-6)
+        speed = float(self.car.speed)
+        speed_abs = abs(speed)
+        speed_n = speed_abs / max(float(self.car.max_speed), 1e-6)
+        # Positive speed = forward along car heading (RaceCar convention)
+        forward_n = max(0.0, speed) / max(float(self.car.max_speed), 1e-6)
 
         # Rewards / penalties (notes.txt + main.py semantics)
         if state2 == "boundary":
@@ -376,8 +379,9 @@ class RacingEnv(gym.Env):
             reward -= 0.08
             reward -= 0.002 * speed_n
         else:
-            reward += 0.06 * speed_n
-            reward += 0.002
+            # On track ("good")
+            reward += 0.08 * forward_n
+            reward += 0.02
             self._steps_on_good += 1
             reward += 0.0004 * float(self._steps_on_good)
 
