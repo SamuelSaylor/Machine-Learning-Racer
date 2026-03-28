@@ -5,6 +5,9 @@ Uses the same RacingEnv observations/actions as training. Run in a separate term
 
   python -m HELPERS.play_model --model models/ppo_racer_v1.zip --track Budapest
   python -m HELPERS.play_model --model models/ppo_racer_v1 --window-scale 0.65
+  python -m HELPERS.play_model --model models/ppo_racer_v1 --stochastic   # if car never moves: policy may be choosing no throttle (idx 1)
+
+Action indices map to accel/steer {-1,0,1}. First index: 0=brake/rev, 1=coast, 2=throttle. At speed 0, coast keeps you stopped; you need idx 2 to accelerate.
 """
 from __future__ import annotations
 
@@ -21,6 +24,15 @@ if _ROOT not in sys.path:
 from stable_baselines3 import PPO
 
 from HELPERS.racing_env import OBSERVATION_LAYOUT, RacingEnv
+
+
+def _decode_action(action: np.ndarray) -> tuple[float, float]:
+    """Same mapping as RacingEnv.step: indices 0,1,2 -> -1,0,1."""
+    a = np.asarray(action, dtype=np.int64).reshape(-1)
+    ia, is_ = int(np.clip(a[0], 0, 2)), int(np.clip(a[1], 0, 2))
+    accel = float([-1, 0, 1][ia])
+    steer = float([-1, 0, 1][is_])
+    return accel, steer
 
 
 def main() -> None:
@@ -43,6 +55,11 @@ def main() -> None:
         "--show-obs",
         action="store_true",
         help="Print observation layout (same as training) and exit",
+    )
+    p.add_argument(
+        "--stochastic",
+        action="store_true",
+        help="Sample actions from the policy (not argmax). Use if the car sits still with deterministic=True.",
     )
     args = p.parse_args()
 
@@ -84,8 +101,9 @@ def main() -> None:
             if event.type == env._pg.QUIT:
                 running = False
 
-        action, _ = model.predict(obs, deterministic=True)
+        action, _ = model.predict(obs, deterministic=not args.stochastic)
         action = np.asarray(action, dtype=np.int64).reshape(-1)
+        acc, steer = _decode_action(action)
 
         obs, _reward, terminated, truncated, info = env.step(action)
         env.render()
@@ -94,8 +112,9 @@ def main() -> None:
         if args.debug and frame % 30 == 0:
             c = env.car
             print(
-                f"action={action.tolist()} speed={getattr(c, 'speed', None)} "
-                f"pos={getattr(c, 'car_pos', None)} contact={info.get('contact')}",
+                f"idx={action.tolist()} -> accel={acc} steer={steer} | "
+                f"speed={getattr(c, 'speed', None)} pos={getattr(c, 'car_pos', None)} "
+                f"contact={info.get('contact')}",
                 file=sys.stderr,
             )
 
