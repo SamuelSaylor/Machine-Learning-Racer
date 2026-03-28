@@ -12,13 +12,15 @@ import argparse
 import os
 import sys
 
+import numpy as np
+
 _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 from stable_baselines3 import PPO
 
-from HELPERS.racing_env import RacingEnv
+from HELPERS.racing_env import OBSERVATION_LAYOUT, RacingEnv
 
 
 def main() -> None:
@@ -32,7 +34,21 @@ def main() -> None:
         default=0.8,
         help="Scale the full 1000×1000 map into the window (0.25–1.0). Lower = smaller window, entire map visible.",
     )
+    p.add_argument(
+        "--debug",
+        action="store_true",
+        help="Print action, speed, position every 30 frames (stderr)",
+    )
+    p.add_argument(
+        "--show-obs",
+        action="store_true",
+        help="Print observation layout (same as training) and exit",
+    )
     args = p.parse_args()
+
+    if args.show_obs:
+        print(OBSERVATION_LAYOUT.strip())
+        return
 
     path = args.model
     if not path.endswith(".zip"):
@@ -61,6 +77,7 @@ def main() -> None:
     obs, _ = env.reset()
     env.render()
     running = True
+    frame = 0
 
     while running:
         for event in env._pg.event.get():
@@ -68,9 +85,19 @@ def main() -> None:
                 running = False
 
         action, _ = model.predict(obs, deterministic=True)
-        obs, _reward, terminated, truncated, _info = env.step(action)
+        action = np.asarray(action, dtype=np.int64).reshape(-1)
+
+        obs, _reward, terminated, truncated, info = env.step(action)
         env.render()
         clock.tick(60)
+        frame += 1
+        if args.debug and frame % 30 == 0:
+            c = env.car
+            print(
+                f"action={action.tolist()} speed={getattr(c, 'speed', None)} "
+                f"pos={getattr(c, 'car_pos', None)} contact={info.get('contact')}",
+                file=sys.stderr,
+            )
 
         if terminated or truncated:
             obs, _ = env.reset()

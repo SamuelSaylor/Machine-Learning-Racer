@@ -24,13 +24,16 @@ class RaceCar:
 
 
     def update(self, input_accel, input_dir, dt, track):
-        if track == 1:
-            self.max_speed = 100
-        elif track == 2:
-            self.max_speed = 0
-            print('car_broke')
+        # track: 0 = on surface (BOUNDARY mask), 1 = off track, 2 = deadzone overlap (crashy)
+        # Do not set max_speed=0 in deadzone — that blocks all acceleration and looks "frozen".
+        base = float(self.data["max_speed"])
+        if track == 2:
+            self.max_speed = base
+            self.speed *= 0.4
+        elif track == 1:
+            self.max_speed = min(base, 100.0)
         else:
-            self.max_speed = self.data['max_speed']
+            self.max_speed = base
             
         # update speed 
         if input_accel > 0:

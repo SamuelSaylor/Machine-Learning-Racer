@@ -19,6 +19,21 @@ from PIL import Image
 
 from HELPERS.racecar import RaceCar
 
+# Observation vector layout (Box shape (15,) with n_rays=9, default). See RacingEnv.observation_space.
+OBSERVATION_LAYOUT = """
+Index  Meaning (all float32, roughly in [-1, 1] unless noted)
+-----  --------
+0      Last accel command: -1 (brake), 0 (coast), 1 (throttle)
+1      Last steer command: -1 (left), 0 (straight), 1 (right)
+2      Speed / max_speed (clamped to [-1, 1])
+3..11  Ray distances: 9 rays from -60° to +60° relative to car forward, normalized by ray_max
+12     +1 if last contact was "good" (on BOUNDARY, not in DEADZONE), else -1
+13     +1 if "off_track", else -1
+14     +1 if "boundary" (deadzone), else -1
+
+Action: MultiDiscrete([3,3]) → accel_idx, steer_idx → maps to {-1,0,1} × {-1,0,1} like main.py keys.
+"""
+
 # Lazy so training can use SDL dummy driver; play_model uses a real window (separate process).
 _pg: Any = None
 
@@ -317,7 +332,7 @@ class RacingEnv(gym.Env):
         self.car = RaceCar(sx, sy, ang)
         self.car.max_speed = stats["max_speed"]
         self.car.acceleration = stats["acceleration"]
-        self.car.breaking = stats["braking"]
+        self.car.braking = stats["braking"]
         self.car.turn_speed = stats["turn_speed"]
 
         return self._observation(), {}
@@ -326,8 +341,9 @@ class RacingEnv(gym.Env):
         assert self.car is not None
         self._episode_steps += 1
 
-        accel_idx = int(np.clip(action[0], 0, 2))
-        steer_idx = int(np.clip(action[1], 0, 2))
+        a = np.asarray(action, dtype=np.float64).reshape(-1)
+        accel_idx = int(np.clip(a[0], 0, 2))
+        steer_idx = int(np.clip(a[1], 0, 2))
         input_accel = float([-1, 0, 1][accel_idx])
         input_dir = float([-1, 0, 1][steer_idx])
         self._last_accel_idx = accel_idx
