@@ -3,22 +3,20 @@ import math
 class RaceCar:
     def __init__(self, x,y, angle):
         self.car_pos = [x,y]
-        self.health = 100
         self.angle = angle 
         self.speed = 0.0
 
         self.max_speed = 150
         self.acceleration = 100
-        self.max_deacceleration = -200
+        self.breaking = -200
         self.turn_speed = 150
 
     def update(self, input_accel, input_dir, dt, friction):
-        # update speed
-        friction = 100
+        # update speed 
         if input_accel > 0:
             self.speed += self.acceleration * input_accel * dt
         elif input_accel < 0:
-            self.speed += self.max_deacceleration * (-input_accel) * dt
+            self.speed += self.breaking * (-input_accel) * dt
         else:
             if self.speed > 0:
                 self.speed -= friction * dt
