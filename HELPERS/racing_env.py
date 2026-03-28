@@ -123,12 +123,12 @@ class RacingEnv(gym.Env):
             )
         else:
             self._window_size = (1, 1)
-            self._frame_buf = None
 
         self._pg = _ensure_pygame(headless, self._window_size if not headless else (1, 1))
         if not headless:
             self._pg.display.set_caption("RacingEnv (policy eval)")
-            self._frame_buf = self._pg.Surface(screen_size)
+        # Offscreen world buffer: used for human render and for training-time compositing (headless ok).
+        self._frame_buf = self._pg.Surface(screen_size)
         self._background_img: Optional[Any] = None
 
         tracks_path = os.path.join(base_dir, "ASSETS", "DATA", "track_data.csv")
@@ -209,11 +209,10 @@ class RacingEnv(gym.Env):
             self._boundary_mask = bm
             self._road_good = rg
             self._track_row = track_row
-            if not self._headless:
-                tdir = os.path.join(self.base_dir, "ASSETS", "TRACKS", dirname)
-                cosmetic_path = os.path.join(tdir, "COSMETIC.png")
-                bg = self._pg.image.load(cosmetic_path).convert()
-                self._background_img = self._pg.transform.scale(bg, self.screen_size)
+            tdir = os.path.join(self.base_dir, "ASSETS", "TRACKS", dirname)
+            cosmetic_path = os.path.join(tdir, "COSMETIC.png")
+            bg = self._pg.image.load(cosmetic_path).convert()
+            self._background_img = self._pg.transform.scale(bg, self.screen_size)
             return
 
         tdir = os.path.join(self.base_dir, "ASSETS", "TRACKS", dirname)
@@ -235,10 +234,9 @@ class RacingEnv(gym.Env):
         self._road_good = road_good
         self._track_row = track_row
 
-        if not self._headless:
-            cosmetic_path = os.path.join(tdir, "COSMETIC.png")
-            bg = self._pg.image.load(cosmetic_path).convert()
-            self._background_img = self._pg.transform.scale(bg, self.screen_size)
+        cosmetic_path = os.path.join(tdir, "COSMETIC.png")
+        bg = self._pg.image.load(cosmetic_path).convert()
+        self._background_img = self._pg.transform.scale(bg, self.screen_size)
 
     def _masks_for_car(self) -> Tuple[Any, Any]:
         rotated = self._pg.transform.rotate(self._car_surface_base, self.car.angle)
@@ -384,23 +382,42 @@ class RacingEnv(gym.Env):
             reward += 0.02
             self._steps_on_good += 1
             reward += 0.0004 * float(self._steps_on_good)
+            # Discourage sitting in reverse on the racing line (early policy often backs up).
+            if speed < 0.0:
+                rev_n = min(1.0, (-speed) / max(float(self.car.max_speed), 1e-6))
+                reward -= 0.06 * rev_n
 
         reward -= 0.0012
 
-        info: Dict[str, Any] = {"contact": state2}
+        final_reward = 0.0
+        if truncated and not terminated:
+            # Bonus for reaching the horizon without a boundary crash (scaled by time on good surface).
+            final_reward = 2.5 + 0.0008 * float(self._steps_on_good)
+            reward += final_reward
+
+        info: Dict[str, Any] = {"contact": state2, "final_reward": float(final_reward)}
         return self._observation(), float(reward), terminated, truncated, info
 
-    def render(self) -> Optional[Any]:
-        """Draw the full world (1000×1000) then scale to the window so the entire map stays visible."""
-        if self._headless or self.car is None or self._background_img is None or self._frame_buf is None:
+    def render_frame_surface(self) -> Optional[Any]:
+        """Compose the full map + car to the offscreen buffer; works in headless mode (no window)."""
+        if self.car is None or self._background_img is None:
             return None
         self._pg.event.pump()
         self._frame_buf.blit(self._background_img, (0, 0))
         rotated = self._pg.transform.rotate(self._car_surface_base, self.car.angle)
         rect = rotated.get_rect(center=(self.car.car_pos[0], self.car.car_pos[1]))
         self._frame_buf.blit(rotated, rect.topleft)
+        return self._frame_buf
+
+    def render(self) -> Optional[Any]:
+        """Draw the full world (1000×1000) then scale to the window so the entire map stays visible."""
+        if self._headless:
+            return None
+        surf = self.render_frame_surface()
+        if surf is None:
+            return None
         win = self._pg.display.get_surface()
-        scaled = self._pg.transform.smoothscale(self._frame_buf, self._window_size)
+        scaled = self._pg.transform.smoothscale(surf, self._window_size)
         win.blit(scaled, (0, 0))
         self._pg.display.flip()
         return None
