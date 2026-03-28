@@ -70,7 +70,8 @@ checkpoints = [
 for i in range(len(checkpoints)-1):
     checkpoints[i] = pygame.transform.scale(checkpoints[i], (1000, 1000))
 
-active_cpmask = pygame.mask.from_surface(checkpoints[0])
+j=0
+active_cpmask = pygame.mask.from_surface(checkpoints[j])
 #active_CP = checkpoints[0]
 respawn_CP = (track_info["startingcoordx"].iloc[0],track_info['startingcoordy'].iloc[0])
 
@@ -111,7 +112,7 @@ while running:
 
     # --- Draw background ---
     screen.blit(background_img, (0, 0))
-    #screen.blit(checkpoints[0],(0,0))
+    screen.blit(checkpoints[j],(0,0))
     #screen.blit(track_img, (0, 0))
     #screen.blit(deadzone_img, (0, 0))
 
@@ -151,10 +152,10 @@ while running:
             player.car_pos[0],player.car_pos[1]=respawn_CP[0],respawn_CP[1] 
 
         if active_cpmask.overlap(player_mask,player_offset):
-            i+=1
-            active_cpmask=pygame.mask.from_surface(checkpoints[i])
+            j+=1
+            active_cpmask=pygame.mask.from_surface(checkpoints[j])
             respawn_CP = (player.car_pos[0],player.car_pos[1])
-            
+
     screen.blit(rotated_npc, npc_rect.topleft)
     pygame.display.flip()
 
