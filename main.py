@@ -1,6 +1,6 @@
 import pygame
 import sys
-from racecar import RaceCar
+from HELPERS.racecar import RaceCar
 import os
 
 pygame.init()
