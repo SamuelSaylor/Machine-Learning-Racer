@@ -3,6 +3,7 @@
 ## Meet the Team
 Matthew Beck, Samuel Saylor, Samantha Machado, Prince Patel  
 Built for the UTSA Code Quantum Hackathon 🚀  
+*Created in full after eight hours of labor.*
 
 ---
 
